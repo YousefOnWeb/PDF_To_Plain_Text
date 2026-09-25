@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os }} (${{ matrix.config }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            config: windows-msvc
+            preset: windows
+          - os: ubuntu-latest
+            config: linux-gcc
+            preset: linux
+          - os: macos-latest
+            config: macos-clang
+            preset: macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Qt -----------------------------------------------------------------
+      - name: Install Qt 6 (Windows)
+        if: runner.os == 'Windows'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.2"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Install Qt 6 (Linux)
+        if: runner.os == 'Linux'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.2"
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: true
+
+      - name: Install Qt 6 (macOS)
+        if: runner.os == 'macOS'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.2"
+          host: mac
+          target: desktop
+          arch: clang_64
+          cache: true
+
+      # --- Poppler / system deps ----------------------------------------------
+      - name: Install Poppler (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpoppler-qt6-dev pkg-config
+
+      - name: Install Poppler (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install poppler pkg-config
+
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: "vcpkg.json"
+
+      - name: Install vcpkg deps (Windows fallback)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install poppler[qt6]:x64-windows --recurse
+        shell: pwsh
+
+      # --- CMake configure / build --------------------------------------------
+      - name: Configure (Windows + vcpkg)
+        if: runner.os == 'Windows'
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+          -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
+        shell: pwsh
+
+      - name: Configure (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package (CPack)
+        working-directory: build
+        run: cpack --config CPackConfig.cmake -B "${{ github.workspace }}/packages"
+        shell: bash
+
+      - name: List packages
+        run: ls -R packages || dir packages
+        shell: bash
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.config }}
+          path: packages/*
+          if-no-files-found: error
+
+      # --- Release on tag -----------------------------------------------------
+      - name: Release (tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*
+          generate_release_notes: true

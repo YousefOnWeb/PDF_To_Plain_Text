@@ -1,5 +1,7 @@
 #include "PdfExtractor.h"
 
+#include <memory>
+
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
