@@ -11,7 +11,8 @@ set(CMAKE_AUTORCC ON)
 # --- Dependencies -------------------------------------------------------------
 
 # Qt6 is required. Provide Qt6_DIR or CMAKE_PREFIX_PATH if Qt is in a custom location.
-# Example: -DCMAKE_PREFIX_PATH="C:/Qt/6.8.0/msvc2022_64"
+# Example (MinGW): -DCMAKE_PREFIX_PATH="C:/Qt/6.8.2/mingw_64"
+# Example (MSYS2):  -DCMAKE_PREFIX_PATH="C:/msys64/mingw64"
 find_package(Qt6 6.2 COMPONENTS Widgets Concurrent REQUIRED)
 
 # Poppler-Qt6: try Config package first (vcpkg), then pkg-config fallback (Linux/macOS system)
@@ -26,10 +27,10 @@ endif()
 if(NOT Poppler_FOUND AND NOT PopplerQt6_FOUND)
     message(WARNING
         "Poppler-Qt6 not found. Install it before building:\n"
-        "  vcpkg:   vcpkg install poppler[qt6]\n"
+        "  vcpkg (MinGW): vcpkg install poppler[qt6]:x64-mingw-dynamic\n"
         "  MSYS2:   pacman -S mingw-w64-x86_64-poppler-qt6\n"
         "  Ubuntu:  sudo apt install libpoppler-qt6-dev\n"
-        "  macOS:   brew install poppler --with-qt\n"
+        "  macOS:   brew install poppler\n"
         "Then re-configure with -DCMAKE_TOOLCHAIN_FILE or -DCMAKE_PREFIX_PATH pointing to the install.")
 endif()
 

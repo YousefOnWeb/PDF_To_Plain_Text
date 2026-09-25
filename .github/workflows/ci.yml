@@ -20,7 +20,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            config: windows-msvc
+            config: windows-mingw
             preset: windows
           - os: ubuntu-latest
             config: linux-gcc
@@ -32,17 +32,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- Qt -----------------------------------------------------------------
-      - name: Install Qt 6 (Windows)
+      # --- Windows: MSYS2 MinGW (fully open-source) ---------------------------
+      - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
-        uses: jurplel/install-qt-action@v4
+        uses: msys2/setup-msys2@v2
         with:
-          version: "6.8.2"
-          host: windows
-          target: desktop
-          arch: win64_msvc2022_64
-          cache: true
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-tools
+            mingw-w64-x86_64-poppler-qt6
+            mingw-w64-x86_64-pkgconf
 
+      # --- Qt / Poppler (Linux / macOS) --------------------------------------
       - name: Install Qt 6 (Linux)
         if: runner.os == 'Linux'
         uses: jurplel/install-qt-action@v4
@@ -63,7 +69,6 @@ jobs:
           arch: clang_64
           cache: true
 
-      # --- Poppler / system deps ----------------------------------------------
       - name: Install Poppler (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -76,38 +81,35 @@ jobs:
           brew update
           brew install poppler pkg-config
 
-      - name: Setup vcpkg (Windows)
-        if: runner.os == 'Windows'
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgJsonGlob: "vcpkg.json"
-
-      - name: Install vcpkg deps (Windows fallback)
-        if: runner.os == 'Windows'
-        run: |
-          vcpkg install poppler[qt6]:x64-windows --recurse
-        shell: pwsh
-
       # --- CMake configure / build --------------------------------------------
-      - name: Configure (Windows + vcpkg)
+      - name: Configure (Windows MinGW via MSYS2)
         if: runner.os == 'Windows'
-        run: >
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-          -DVCPKG_TARGET_TRIPLET=x64-windows
-          -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
-        shell: pwsh
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Configure (Linux / macOS)
         if: runner.os != 'Windows'
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build
-        run: cmake --build build --config Release --parallel
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: cmake --build build --parallel
 
-      - name: Package (CPack)
+      - name: Build (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: cmake --build build --parallel
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        working-directory: build
+        run: cpack --config CPackConfig.cmake -B "${GITHUB_WORKSPACE}/packages"
+
+      - name: Package (Linux / macOS)
+        if: runner.os != 'Windows'
         working-directory: build
         run: cpack --config CPackConfig.cmake -B "${{ github.workspace }}/packages"
         shell: bash
