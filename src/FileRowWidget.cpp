@@ -10,8 +10,8 @@ FileRowWidget::FileRowWidget(const QString &filePath, QWidget *parent)
     setObjectName("FileRow");
     setAttribute(Qt::WA_StyledBackground, true);
     auto *lay = new QHBoxLayout(this);
-    lay->setContentsMargins(6, 4, 6, 4);
-    lay->setSpacing(8);
+    lay->setContentsMargins(4, 2, 4, 2);
+    lay->setSpacing(6);
 
     QFileInfo fi(filePath);
     QString text = fi.fileName() + QStringLiteral("  —  ") + QDir::toNativeSeparators(filePath);
@@ -26,9 +26,9 @@ FileRowWidget::FileRowWidget(const QString &filePath, QWidget *parent)
     m_removeBtn->setText(QStringLiteral("×"));
     m_removeBtn->setToolTip(QStringLiteral("Remove this file"));
     m_removeBtn->setCursor(Qt::PointingHandCursor);
-    m_removeBtn->setFixedSize(20, 20);
+    m_removeBtn->setFixedSize(18, 18);
     m_removeBtn->setStyleSheet(
-        "QToolButton { border: none; border-radius: 4px; color: #A0AEC0; background: transparent; font-size: 14px; font-weight: 700; }"
+        "QToolButton { border: none; border-radius: 3px; color: #A0AEC0; background: transparent; font-size: 13px; font-weight: 700; }"
         "QToolButton:hover { color: #F87171; background: #3A3A3A; }"
         "QToolButton:pressed { background: #4A5568; }");
     m_removeBtn->setVisible(false);

@@ -117,8 +117,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_fileList->setMinimumHeight(90);
     m_fileList->setStyleSheet(
         "QListWidget { border: 1px solid #4A5568; border-radius: 6px; background: #2D2D2D; color: #E0E0E0; }"
-        "QListWidget::item { padding: 0px; border: none; background: transparent; }"
-        "QListWidget::item:selected { background: #3B82F6; }");
+        "QListWidget::item { padding: 0px; border: none; background: transparent; margin: 1px 2px; border-radius: 4px; }"
+        "QListWidget::item:selected { background: rgba(59, 130, 246, 0.28); border: 1px solid rgba(59,130,246,0.45); }"
+        "QListWidget::item:selected:active { background: rgba(59, 130, 246, 0.35); }"
+        "QListWidget::item:hover:!selected { background: #3A3A3A; }");
     m_listStack->addWidget(m_fileList);
 
     // Page 1: empty placeholder — perfectly centered via layout, no viewport geometry hack
@@ -156,9 +158,39 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_undoTimer = new QTimer(this);
     m_undoTimer->setSingleShot(true);
-    m_undoTimer->setInterval(4000);
+    m_undoTimer->setInterval(7000);
     connect(m_undoTimer, &QTimer::timeout, m_undoToast, &QWidget::hide);
     connect(m_undoBtn, &QPushButton::clicked, this, &MainWindow::onUndo);
+
+    m_countdownTimer = new QTimer(this);
+    m_countdownTimer->setInterval(1000);
+    connect(m_countdownTimer, &QTimer::timeout, this, [this]() {
+        if (m_countdownRemaining <= 0) {
+            m_countdownTimer->stop();
+            return;
+        }
+        --m_countdownRemaining;
+        if (m_countdownRemaining > 0) {
+            QString base = m_undoLabel->property("baseText").toString();
+            if (!base.isEmpty()) {
+                m_undoLabel->setText(base + QStringLiteral(" — Undo (%1s)").arg(m_countdownRemaining));
+                m_statusLabel->setText(base + QStringLiteral(" — Undo available for %1s").arg(m_countdownRemaining));
+            }
+        } else {
+            // Time up: hide toast and reset status to general
+            m_undoToast->setVisible(false);
+            m_countdownTimer->stop();
+            m_statusLabel->setText(m_generalStatusText);
+            m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
+        }
+    });
+
+    m_statusResetTimer = new QTimer(this);
+    m_statusResetTimer->setSingleShot(true);
+    connect(m_statusResetTimer, &QTimer::timeout, this, [this]() {
+        m_statusLabel->setText(m_generalStatusText);
+        m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
+    });
 
     root->addWidget(listContainer, 1);
 
@@ -300,7 +332,7 @@ void MainWindow::addFiles(const QStringList &paths) {
         m_queuedFiles.append(p);
         auto *item = new QListWidgetItem(m_fileList);
         item->setData(Qt::UserRole, p);
-        item->setSizeHint(QSize(0, 36));
+        item->setSizeHint(QSize(0, 28));
         m_fileList->addItem(item);
         auto *row = new FileRowWidget(p, m_fileList);
         m_fileList->setItemWidget(item, row);
@@ -315,12 +347,12 @@ void MainWindow::addFiles(const QStringList &paths) {
                     delete m_fileList->takeItem(i);
                     updateEmptyPlaceholder();
                     onSelectionChanged();
-                    m_undoLabel->setText(QStringLiteral("Removed 1 file"));
-                    m_undoToast->setVisible(true);
-                    m_undoTimer->start();
-                    m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
-                    m_statusLabel->setText(QStringLiteral("Removed 1 file — Undo available for 4s"));
                     m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
+                    // Update general status to new queue size before countdown
+                    m_generalStatusText = m_queuedFiles.isEmpty() ? QStringLiteral("Ready") : QStringLiteral("Queued %1 file(s). Ready to extract.").arg(m_queuedFiles.size());
+                    updateEmptyPlaceholder();
+                    onSelectionChanged();
+                    startUndoCountdown(QStringLiteral("Removed 1 file"));
                     break;
                 }
             }
@@ -328,8 +360,11 @@ void MainWindow::addFiles(const QStringList &paths) {
         ++added;
     }
     if (added > 0) {
+        m_generalStatusText = QStringLiteral("Queued %1 file(s). Ready to extract.").arg(m_queuedFiles.size());
         m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
-        m_statusLabel->setText(QStringLiteral("Queued %1 file(s). Ready to extract.").arg(m_queuedFiles.size()));
+        m_statusLabel->setText(m_generalStatusText);
+    } else if (m_queuedFiles.isEmpty()) {
+        m_generalStatusText = QStringLiteral("Ready");
     }
     m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
     updateEmptyPlaceholder();
@@ -416,9 +451,8 @@ void MainWindow::onExtractionFinished(int succeeded, int failed) {
         m_queuedFiles.clear();
         m_fileList->clear();
         m_extractBtn->setEnabled(false);
-        m_undoLabel->setText(QStringLiteral("Converted %1 file(s) — queue cleared").arg(succeeded));
-        m_undoToast->setVisible(true);
-        m_undoTimer->start();
+        m_generalStatusText = QStringLiteral("Ready");
+        startUndoCountdown(QStringLiteral("Converted %1 file(s) — queue cleared").arg(succeeded));
     } else if (succeeded > 0) {
         m_statusLabel->setStyleSheet("color: #FBBF24; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Converted %1 file(s), %2 failed. Check output folder: %3").arg(QString::number(succeeded), QString::number(failed), QDir::toNativeSeparators(m_outputDir)));
@@ -444,9 +478,8 @@ void MainWindow::clearQueue() {
     m_progress->setVisible(false);
     updateEmptyPlaceholder();
     onSelectionChanged();
-    m_undoLabel->setText(QStringLiteral("Cleared %1 file(s)").arg(s_undoState.paths.size()));
-    m_undoToast->setVisible(true);
-    m_undoTimer->start();
+    m_generalStatusText = QStringLiteral("Ready");
+    startUndoCountdown(QStringLiteral("Cleared %1 file(s)").arg(s_undoState.paths.size()));
 }
 
 void MainWindow::removeSelected() {
@@ -464,18 +497,16 @@ void MainWindow::removeSelected() {
         m_queuedFiles.removeAt(r);
         delete m_fileList->takeItem(r);
     }
+    m_generalStatusText = m_queuedFiles.isEmpty() ? QStringLiteral("Ready") : QStringLiteral("Queued %1 file(s). Ready to extract.").arg(m_queuedFiles.size());
     updateEmptyPlaceholder();
     onSelectionChanged();
     m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
-    m_undoLabel->setText(QStringLiteral("Removed %1 file(s)").arg(rows.size()));
-    m_undoToast->setVisible(true);
-    m_undoTimer->start();
-    m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
-    m_statusLabel->setText(QStringLiteral("Removed %1 file(s) — Undo available for 4s").arg(rows.size()));
+    startUndoCountdown(QStringLiteral("Removed %1 file(s)").arg(rows.size()));
 }
 
 void MainWindow::onUndo() {
     m_undoTimer->stop();
+    m_countdownTimer->stop();
     m_undoToast->setVisible(false);
     if (s_undoState.paths.isEmpty()) return;
     // Re-insert in ascending row order
@@ -487,7 +518,7 @@ void MainWindow::onUndo() {
         m_queuedFiles.insert(r, pr.second);
         auto *item = new QListWidgetItem();
         item->setData(Qt::UserRole, pr.second);
-        item->setSizeHint(QSize(0, 36));
+        item->setSizeHint(QSize(0, 28));
         m_fileList->insertItem(r, item);
         auto *row = new FileRowWidget(pr.second, m_fileList);
         m_fileList->setItemWidget(item, row);
@@ -500,10 +531,8 @@ void MainWindow::onUndo() {
                     delete m_fileList->takeItem(i);
                     updateEmptyPlaceholder();
                     onSelectionChanged();
-                    m_undoLabel->setText(QStringLiteral("Removed 1 file"));
-                    m_undoToast->setVisible(true);
-                    m_undoTimer->start();
-                    m_statusLabel->setText(QStringLiteral("Removed 1 file — Undo available for 4s"));
+                    m_generalStatusText = m_queuedFiles.isEmpty() ? QStringLiteral("Ready") : QStringLiteral("Queued %1 file(s). Ready to extract.").arg(m_queuedFiles.size());
+                    startUndoCountdown(QStringLiteral("Removed 1 file"));
                     m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
                     break;
                 }
@@ -512,16 +541,41 @@ void MainWindow::onUndo() {
     }
     s_undoState.paths.clear();
     s_undoState.rows.clear();
+    m_generalStatusText = m_queuedFiles.isEmpty() ? QStringLiteral("Ready") : QStringLiteral("Queued %1 file(s). Ready to extract.").arg(m_queuedFiles.size());
     updateEmptyPlaceholder();
     onSelectionChanged();
     m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
-    m_statusLabel->setStyleSheet("color: #4ADE80; font-size: 11px;");
-    m_statusLabel->setText(QStringLiteral("Undo successful"));
+    startStatusReset(QStringLiteral("Undo successful"), 4000);
 }
 
 void MainWindow::onSelectionChanged() {
     bool hasSel = !m_fileList->selectedItems().isEmpty() && !m_queuedFiles.isEmpty();
     m_removeSelectedBtn->setEnabled(hasSel);
+}
+
+void MainWindow::startUndoCountdown(const QString &baseMsg) {
+    // Save current general status if empty
+    if (m_generalStatusText.isEmpty()) m_generalStatusText = QStringLiteral("Ready");
+    m_undoLabel->setProperty("baseText", baseMsg);
+    m_undoLabel->setText(baseMsg + QStringLiteral(" — Undo (7s)"));
+    m_statusLabel->setText(baseMsg + QStringLiteral(" — Undo available for 7s"));
+    m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
+    m_undoToast->setVisible(true);
+    m_countdownRemaining = 7;
+    m_countdownTimer->start();
+    m_undoTimer->start();
+}
+
+void MainWindow::startStatusReset(const QString &msg, int ms) {
+    m_statusLabel->setText(msg);
+    m_statusLabel->setStyleSheet("color: #4ADE80; font-size: 11px;");
+    m_statusResetTimer->stop();
+    // Disconnect previous singleShot connections to avoid multiple
+    // Use singleShot timer to reset to general
+    QTimer::singleShot(ms, this, [this]() {
+        m_statusLabel->setText(m_generalStatusText);
+        m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
+    });
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event) {

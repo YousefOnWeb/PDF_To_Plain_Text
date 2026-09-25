@@ -60,7 +60,13 @@ private:
     QLabel *m_undoLabel = nullptr;
     QPushButton *m_undoBtn = nullptr;
     class QTimer *m_undoTimer = nullptr;
+    class QTimer *m_countdownTimer = nullptr;
+    class QTimer *m_statusResetTimer = nullptr;
+    int m_countdownRemaining = 0;
+    QString m_generalStatusText;
     void updateEmptyPlaceholder();
+    void startUndoCountdown(const QString &baseMsg);
+    void startStatusReset(const QString &msg, int ms = 4000);
 
     QStringList m_queuedFiles;
     QString m_outputDir;
