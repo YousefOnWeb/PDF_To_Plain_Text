@@ -124,7 +124,10 @@ if(WIN32)
                           nss3.dll libnspr4.dll libplc4.dll libplds4.dll
                           nssckbi.dll nssdbm3.dll nssutil3.dll smime3.dll ssl3.dll softokn3.dll freebl3.dll
                           libmd4c.dll libmd4c-html.dll libsharpyuv-0.dll
-                          libglib-2.0-0.dll libbz2-1.dll libopenjp2-7.dll libdeflate.dll libjbig-0.dll libLerc.dll)
+                          libglib-2.0-0.dll libbz2-1.dll libopenjp2-7.dll libdeflate.dll libjbig-0.dll libLerc.dll
+                          libcurl-4.dll libintl-8.dll liblzma-5.dll libiconv-2.dll libunistring-5.dll
+                          libidn2-0.dll libpsl-5.dll libssh2-1.dll libnghttp2-14.dll libnghttp3-9.dll
+                          libngtcp2-16.dll libngtcp2_crypto_ossl-0.dll libcrypto-3-x64.dll libssl-3-x64.dll)
         # First try known prefixes, then PATH
         find_file(_found_${_dll} ${_dll}
             HINTS "${CMAKE_PREFIX_PATH}/bin" "C:/tools/msys64/ucrt64/bin" "C:/tools/msys64/mingw64/bin"
@@ -145,7 +148,7 @@ if(WIN32)
         endif()
     endforeach()
     # Version-agnostic fallback: copy any libicu*.dll / liblcms2*.dll / nss*.dll that exists (covers ICU 78, 79, etc.)
-    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll" "nss*.dll" "libnspr*.dll" "libplc*.dll" "libplds*.dll" "smime*.dll" "ssl*.dll" "softokn*.dll" "freebl*.dll" "*md4c*.dll" "libglib*.dll" "libbz2*.dll" "libopenjp2*.dll" "libdeflate*.dll" "libjbig*.dll" "libLerc*.dll" "libsharpyuv*.dll")
+    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll" "nss*.dll" "libnspr*.dll" "libplc*.dll" "libplds*.dll" "smime*.dll" "ssl*.dll" "softokn*.dll" "freebl*.dll" "*md4c*.dll" "libglib*.dll" "libbz2*.dll" "libopenjp2*.dll" "libdeflate*.dll" "libjbig*.dll" "libLerc*.dll" "libsharpyuv*.dll" "libcurl*.dll" "libintl*.dll" "liblzma*.dll" "libiconv*.dll" "libidn*.dll" "libpsl*.dll" "libssh*.dll" "libnghttp*.dll" "libngtcp*.dll" "libcrypto*.dll" "libssl*.dll" "libunistring*.dll")
         foreach(_g IN LISTS _glob_dlls)
             get_filename_component(_g_name "${_g}" NAME)
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
@@ -184,7 +187,10 @@ if(WIN32)
                           nss3.dll libnspr4.dll libplc4.dll libplds4.dll
                           nssckbi.dll nssdbm3.dll nssutil3.dll smime3.dll ssl3.dll softokn3.dll freebl3.dll
                           libmd4c.dll libmd4c-html.dll libsharpyuv-0.dll
-                          libglib-2.0-0.dll libbz2-1.dll libopenjp2-7.dll libdeflate.dll libjbig-0.dll libLerc.dll)
+                          libglib-2.0-0.dll libbz2-1.dll libopenjp2-7.dll libdeflate.dll libjbig-0.dll libLerc.dll
+                          libcurl-4.dll libintl-8.dll liblzma-5.dll libiconv-2.dll libunistring-5.dll
+                          libidn2-0.dll libpsl-5.dll libssh2-1.dll libnghttp2-14.dll libnghttp3-9.dll
+                          libngtcp2-16.dll libngtcp2_crypto_ossl-0.dll libcrypto-3-x64.dll libssl-3-x64.dll)
         if(EXISTS "${CMAKE_PREFIX_PATH}/bin/${_dll}")
             install(FILES "${CMAKE_PREFIX_PATH}/bin/${_dll}" DESTINATION bin)
         elseif(EXISTS "C:/tools/msys64/ucrt64/bin/${_dll}")
@@ -194,7 +200,7 @@ if(WIN32)
         endif()
     endforeach()
     # Version-agnostic install for ICU/lcms2/nss
-    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll" "nss*.dll" "libnspr*.dll" "libplc*.dll" "libplds*.dll" "smime*.dll" "ssl*.dll" "softokn*.dll" "freebl*.dll" "*md4c*.dll" "libglib*.dll" "libbz2*.dll" "libopenjp2*.dll" "libdeflate*.dll" "libjbig*.dll" "libLerc*.dll" "libsharpyuv*.dll")
+    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll" "nss*.dll" "libnspr*.dll" "libplc*.dll" "libplds*.dll" "smime*.dll" "ssl*.dll" "softokn*.dll" "freebl*.dll" "*md4c*.dll" "libglib*.dll" "libbz2*.dll" "libopenjp2*.dll" "libdeflate*.dll" "libjbig*.dll" "libLerc*.dll" "libsharpyuv*.dll" "libcurl*.dll" "libintl*.dll" "liblzma*.dll" "libiconv*.dll" "libidn*.dll" "libpsl*.dll" "libssh*.dll" "libnghttp*.dll" "libngtcp*.dll" "libcrypto*.dll" "libssl*.dll" "libunistring*.dll")
         file(GLOB _inst_glob "${CMAKE_PREFIX_PATH}/bin/${_pattern}" "C:/tools/msys64/ucrt64/bin/${_pattern}" "C:/tools/msys64/mingw64/bin/${_pattern}")
         if(_inst_glob)
             install(FILES ${_inst_glob} DESTINATION bin)
