@@ -13,12 +13,21 @@ file(GET_RUNTIME_DEPENDENCIES
     RESOLVED_DEPENDENCIES_VAR _resolved
     UNRESOLVED_DEPENDENCIES_VAR _unresolved
     DIRECTORIES ${SEARCH_DIRS}
-    POST_EXCLUDE_REGEXES ".*system32.*"
-    PRE_EXCLUDE_REGEXES ".*system32.*"
+    POST_EXCLUDE_REGEXES ".*system32.*" ".*api-ms-win.*"
+    PRE_EXCLUDE_REGEXES ".*system32.*" ".*api-ms-win.*"
 )
 
 if(_unresolved)
-    message(STATUS "Unresolved runtime deps (may be system): ${_unresolved}")
+    # Filter out api-ms-win virtual API sets (Windows 10+ Umbrella libs, not real files)
+    set(_filtered "")
+    foreach(_u IN LISTS _unresolved)
+        if(NOT _u MATCHES "^api-ms-win-")
+            list(APPEND _filtered "${_u}")
+        endif()
+    endforeach()
+    if(_filtered)
+        message(STATUS "Unresolved runtime deps (may be system): ${_filtered}")
+    endif()
 endif()
 
 foreach(_dep IN LISTS _resolved)
