@@ -15,6 +15,21 @@ set(CMAKE_AUTORCC ON)
 # Example (MSYS2):  -DCMAKE_PREFIX_PATH="C:/msys64/mingw64"
 find_package(Qt6 6.2 COMPONENTS Widgets Concurrent REQUIRED)
 
+# Windows: ensure Qt DLLs are on PATH at configure time so AUTOMOC's moc.exe test runs without manual PATH setup
+if(WIN32)
+    if(Qt6_DIR AND EXISTS "${Qt6_DIR}/../../../bin")
+        get_filename_component(_qt_bin "${Qt6_DIR}/../../../bin" ABSOLUTE)
+        if(EXISTS "${_qt_bin}")
+            set(ENV{PATH} "${_qt_bin};$ENV{PATH}")
+        endif()
+    endif()
+    foreach(_p IN LISTS CMAKE_PREFIX_PATH)
+        if(EXISTS "${_p}/bin")
+            set(ENV{PATH} "${_p}/bin;$ENV{PATH}")
+        endif()
+    endforeach()
+endif()
+
 # Poppler-Qt6: try Config package first (vcpkg), then pkg-config fallback (Linux/macOS system)
 find_package(Poppler QUIET COMPONENTS Qt6)
 if(NOT Poppler_FOUND)

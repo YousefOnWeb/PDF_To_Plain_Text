@@ -49,26 +49,33 @@ If you installed both via a system package manager (`apt`/`brew`/`pacman` in MSY
 
 #### Windows (PowerShell only, open-source toolchain)
 
-Open **PowerShell** from the repository root. Uses the open-source **MinGW-w64 GCC** toolchain.
+**Guaranteed one-click (recommended):**
+```powershell
+# From: <repo-root>\  (where CMakeLists.txt lives)
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Clean
+# - auto-detects Qt/Poppler at C:\tools\msys64\ucrt64, C:\msys64\ucrt64, or C:\Qt\...\mingw_64
+# - sets PATH/PKG_CONFIG_PATH, configures, builds, runs windeployqt, creates packages\*.zip
+# - then run: .\build\PDFToPlainText.exe  (no PATH needed, DLLs already copied)
+```
 
+**Manual (if you prefer plain cmake):**
 ```powershell
 # From: <repo-root>\  (where CMakeLists.txt lives)
 
-# Example A — Qt + Poppler both from MSYS2 MINGW64 (no extra flags needed inside MINGW64 shell):
-# If you are in MSYS2 MINGW64, just run:
-# cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+# Example A — MSYS2 UCRT64 via PowerShell (explicit prefix, PATH auto-fixed by CMake):
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:/tools/msys64/ucrt64"
+cmake --build build --parallel
+.\build\PDFToPlainText.exe   # From: <repo-root>\  — build dir is self-contained via automatic windeployqt
 
 # Example B — Qt via aqtinstall + Poppler via vcpkg (MinGW triplet):
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_PREFIX_PATH="C:\Qt\6.8.2\mingw_64" `
-  -DCMAKE_TOOLCHAIN_FILE="C:\vcpkg\scripts\buildsystems\vcpkg.cmake" `
-  -DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic
-
-cmake --build build --config Release --parallel
-.\build\PDFToPlainText.exe   # From: <repo-root>\  — run the app (build dir is self-contained via automatic windeployqt)
+# cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+#   -DCMAKE_PREFIX_PATH="C:\Qt\6.8.2\mingw_64" `
+#   -DCMAKE_TOOLCHAIN_FILE="C:\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+#   -DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic
+# cmake --build build --parallel
 ```
 
-> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. All Windows builds use the open-source MinGW-w64 GCC. No manual `PATH` or DLL copying is needed after build.
+> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. All Windows builds use the open-source MinGW-w64 GCC. With `build.ps1` or `CMAKE_PREFIX_PATH`, no manual `PATH` or DLL copying is needed — CMake guarantees `build/PDFToPlainText.exe` is runnable and `packages/*.zip` is self-contained.
 
 If you prefer the MSYS2 shell directly:
 
