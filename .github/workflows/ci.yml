@@ -46,6 +46,7 @@ jobs:
             mingw-w64-x86_64-qt6-base
             mingw-w64-x86_64-qt6-tools
             mingw-w64-x86_64-poppler-qt6
+            mingw-w64-x86_64-nsis
             mingw-w64-x86_64-pkgconf
 
       # --- Qt / Poppler (Linux / macOS) --------------------------------------
@@ -80,6 +81,17 @@ jobs:
         run: |
           brew update
           brew install poppler pkg-config
+          # poppler-qt6 may be in separate pkgconfig; ensure brew paths are in PKG_CONFIG_PATH
+          echo "PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig:/opt/homebrew/opt/qt@6/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          # Verify poppler-qt6 is available
+          pkg-config --modversion poppler-qt6 || echo "poppler-qt6.pc not found, checking poppler.pc"
+          pkg-config --modversion poppler || true
+
+      - name: Setup vcpkg (macOS fallback for poppler-qt6)
+        if: runner.os == 'macOS'
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: "vcpkg.json"
 
       # --- CMake configure / build --------------------------------------------
       - name: Configure (Windows MinGW via MSYS2)
@@ -88,10 +100,21 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-      - name: Configure (Linux / macOS)
-        if: runner.os != 'Windows'
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if pkg-config --exists poppler-qt6; then
+            echo "Found poppler-qt6 via pkg-config"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          else
+            echo "poppler-qt6 not found via pkg-config, using vcpkg fallback"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=arm64-osx
+          fi
 
       - name: Build (Windows)
         if: runner.os == 'Windows'

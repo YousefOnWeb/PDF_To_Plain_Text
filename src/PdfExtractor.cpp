@@ -7,11 +7,16 @@
 #include <QTextStream>
 #include <QDir>
 
+#if __has_include(<poppler-qt6.h>)
+#include <poppler-qt6.h>
+#elif __has_include(<poppler/qt6/poppler-qt6.h>)
+#include <poppler/qt6/poppler-qt6.h>
+#else
 #ifdef HAVE_POPPLER_QT6_CONFIG
 #include <poppler-qt6.h>
 #else
-// Fallback include path for pkg-config builds
-#include <poppler/qt6/poppler-qt6.h>
+#include <poppler-qt6.h>
+#endif
 #endif
 
 PdfExtractor::PdfExtractor(QObject *parent) : QObject(parent) {}
