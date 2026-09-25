@@ -112,8 +112,15 @@ if(WIN32)
 
     # Build-time: copy Poppler + MinGW runtime DLLs that windeployqt does not handle
     # Works for MSYS2 (C:/tools/msys64/ucrt64/bin) and vcpkg (x64-mingw-dynamic) layouts
+    # Hardcoded list covers the usual runtime; GLOB handles versioned ICU etc.
     foreach(_dll IN ITEMS libpoppler-qt6-3.dll libpoppler-163.dll libpoppler-cpp-3.dll
-                          libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+                          libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll
+                          liblcms2-2.dll libdouble-conversion.dll
+                          libicuin78.dll libicuuc78.dll libicudt78.dll
+                          libharfbuzz-0.dll libpng16-16.dll libfreetype-6.dll
+                          libb2-1.dll libgraphite2.dll libpcre2-16-0.dll libpcre2-8-0.dll
+                          zlib1.dll libbrotlidec.dll libbrotlicommon.dll libzstd.dll
+                          libwebp-7.dll libjpeg-8.dll libtiff-6.dll)
         # First try known prefixes, then PATH
         find_file(_found_${_dll} ${_dll}
             HINTS "${CMAKE_PREFIX_PATH}/bin" "C:/tools/msys64/ucrt64/bin" "C:/tools/msys64/mingw64/bin"
@@ -133,6 +140,18 @@ if(WIN32)
             unset(_found_${_dll} CACHE)
         endif()
     endforeach()
+    # Version-agnostic fallback: copy any libicu*.dll / liblcms2*.dll that exists (covers ICU 78, 79, etc.)
+    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll")
+        file(GLOB _glob_dlls "${CMAKE_PREFIX_PATH}/bin/${_pattern}" "C:/tools/msys64/ucrt64/bin/${_pattern}" "C:/tools/msys64/mingw64/bin/${_pattern}")
+        foreach(_g IN LISTS _glob_dlls)
+            get_filename_component(_g_name "${_g}" NAME)
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_g}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+                COMMENT "Copying ${_g_name} (glob) to build dir"
+                VERBATIM
+            )
+        endforeach()
+    endforeach()
 
     # Generic fallback: CMake 3.21+ can enumerate RUNTIME_DLLS for imported targets (covers vcpkg)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21")
@@ -143,7 +162,30 @@ if(WIN32)
         )
     endif()
 
-    # Install-time: also bundle Poppler/MinGW DLLs (when using vcpkg)
+    # Install-time: bundle runtime DLLs for ZIP/NSIS (MSYS2 + vcpkg)
+    # Prefer explicit install(FILES ...) so CPack ZIP is self-contained even without vcpkg
+    foreach(_dll IN ITEMS libpoppler-qt6-3.dll libpoppler-163.dll libpoppler-cpp-3.dll
+                          libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll
+                          liblcms2-2.dll libdouble-conversion.dll
+                          libicuin78.dll libicuuc78.dll libicudt78.dll
+                          libharfbuzz-0.dll libpng16-16.dll libfreetype-6.dll)
+        if(EXISTS "${CMAKE_PREFIX_PATH}/bin/${_dll}")
+            install(FILES "${CMAKE_PREFIX_PATH}/bin/${_dll}" DESTINATION bin)
+        elseif(EXISTS "C:/tools/msys64/ucrt64/bin/${_dll}")
+            install(FILES "C:/tools/msys64/ucrt64/bin/${_dll}" DESTINATION bin)
+        elseif(EXISTS "C:/tools/msys64/mingw64/bin/${_dll}")
+            install(FILES "C:/tools/msys64/mingw64/bin/${_dll}" DESTINATION bin)
+        endif()
+    endforeach()
+    # Version-agnostic install for ICU/lcms2
+    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll")
+        file(GLOB _inst_glob "${CMAKE_PREFIX_PATH}/bin/${_pattern}" "C:/tools/msys64/ucrt64/bin/${_pattern}")
+        if(_inst_glob)
+            install(FILES ${_inst_glob} DESTINATION bin)
+        endif()
+    endforeach()
+
+    # vcpkg: bundle everything in triplet bin
     if(VCPKG_INSTALLED_DIR)
         install(DIRECTORY "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/" DESTINATION bin
             FILES_MATCHING PATTERN "*.dll")
