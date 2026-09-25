@@ -26,7 +26,7 @@ You need four things. **How** you install them is up to you — pick your prefer
 | **Qt 6.2+ (Widgets + Concurrent)** | Qt SDK | MSYS2 `pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools`, `aqtinstall` (Python, open-source), `sudo apt install qt6-base-dev`, `brew install qt@6` |
 | **Poppler-Qt6** | Poppler with Qt6 bindings | MSYS2 `pacman -S mingw-w64-x86_64-poppler-qt6`, `vcpkg install poppler[qt6]:x64-mingw-dynamic` (MinGW triplet), `sudo apt install libpoppler-qt6-dev`, `brew install poppler` |
 
-> After you install them, **note where they landed** — you will point CMake at those locations in the next section. You do not need to copy DLLs manually; the build does that.
+> After you install them, **note where they landed** — you will point CMake at those locations in the next section. You do not need to copy DLLs manually; the build automates `windeployqt` + runtime DLL deployment so `build/PDFToPlainText.exe` runs immediately without editing `PATH`.
 
 The repository also ships a `vcpkg.json` manifest so `vcpkg` with the MinGW triplet can fetch Poppler automatically.
 
@@ -65,10 +65,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
   -DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic
 
 cmake --build build --config Release --parallel
-.\build\PDFToPlainText.exe   # From: <repo-root>\  — run the app
+.\build\PDFToPlainText.exe   # From: <repo-root>\  — run the app (build dir is self-contained via automatic windeployqt)
 ```
 
-> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. All Windows builds use the open-source MinGW-w64 GCC.
+> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. All Windows builds use the open-source MinGW-w64 GCC. No manual `PATH` or DLL copying is needed after build.
 
 If you prefer the MSYS2 shell directly:
 
@@ -121,7 +121,7 @@ Outputs per platform (in `<repo-root>/packages/`):
 | **macOS** | `PDFToPlainText-1.0.0-Darwin.dmg` + `.zip` |
 | **Linux** | `PDFToPlainText-1.0.0-Linux.tar.gz` + `PDFToPlainText-1.0.0-Linux.deb` |
 
-On **Windows** the install runs `windeployqt` automatically and bundles Poppler/MinGW DLLs (via `vcpkg` `x64-mingw-dynamic` or MSYS2), so the installed app is self-contained. No manual DLL copying.
+On **Windows** both the `build/` exe and the installed app are self-contained: CMake runs `windeployqt` automatically at build time and bundles Poppler/MinGW DLLs (`libpoppler-qt6-3.dll`, `libgcc_s_seh-1.dll`, etc.) — no manual `PATH` or DLL copying, whether you run from `build/` or from the installer/ZIP.
 
 ---
 

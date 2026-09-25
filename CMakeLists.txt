@@ -70,15 +70,61 @@ install(TARGETS ${PROJECT_NAME}
     BUNDLE  DESTINATION .
 )
 
-# Windows: run windeployqt automatically on install (requires Qt bin dir in PATH or QT_HOST_PATH)
+# Windows: run windeployqt automatically on install + make build dir runnable without manual PATH
 if(WIN32)
-    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${Qt6_DIR}/../../../bin")
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt
+        HINTS "${Qt6_DIR}/../../../bin" "${CMAKE_PREFIX_PATH}/bin" "$ENV{Qt6_DIR}/../../../bin"
+        PATHS ENV PATH
+    )
     if(WINDEPLOYQT_EXECUTABLE)
+        # Install-time: bundle Qt runtime into the package (CPack ZIP/NSIS)
         install(CODE "
             execute_process(COMMAND \"${WINDEPLOYQT_EXECUTABLE}\" --no-translations --no-system-d3d-compiler --no-opengl-sw \"\${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}.exe\")
         ")
+        # Build-time: make ./build/PDFToPlainText.exe runnable immediately (no manual PATH needed)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}" --no-translations --no-system-d3d-compiler --no-opengl-sw "$<TARGET_FILE:${PROJECT_NAME}>"
+            COMMENT "Running windeployqt — build dir is now self-contained"
+            VERBATIM
+        )
+    else()
+        message(WARNING "windeployqt not found — build dir will require Qt bin dir on PATH at runtime")
     endif()
-    # Poppler DLLs are handled by vcpkg install step or manual copy; CPack will bundle bin/*.dll
+
+    # Build-time: copy Poppler + MinGW runtime DLLs that windeployqt does not handle
+    # Works for MSYS2 (C:/tools/msys64/ucrt64/bin) and vcpkg (x64-mingw-dynamic) layouts
+    foreach(_dll IN ITEMS libpoppler-qt6-3.dll libpoppler-163.dll libpoppler-cpp-3.dll
+                          libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+        # First try known prefixes, then PATH
+        find_file(_found_${_dll} ${_dll}
+            HINTS "${CMAKE_PREFIX_PATH}/bin" "C:/tools/msys64/ucrt64/bin" "C:/tools/msys64/mingw64/bin"
+            PATHS ENV PATH
+            NO_DEFAULT_PATH
+        )
+        find_file(_found_${_dll} ${_dll}
+            HINTS "${CMAKE_PREFIX_PATH}/bin"
+            PATHS ENV PATH
+        )
+        if(_found_${_dll})
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_found_${_dll}}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+                COMMENT "Copying ${_dll} to build dir"
+                VERBATIM
+            )
+            unset(_found_${_dll} CACHE)
+        endif()
+    endforeach()
+
+    # Generic fallback: CMake 3.21+ can enumerate RUNTIME_DLLS for imported targets (covers vcpkg)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:${PROJECT_NAME}> $<TARGET_FILE_DIR:${PROJECT_NAME}> 2>nul || ${CMAKE_COMMAND} -E true
+            COMMAND_EXPAND_LISTS
+            COMMENT "Copying TARGET_RUNTIME_DLLS if any"
+        )
+    endif()
+
+    # Install-time: also bundle Poppler/MinGW DLLs (when using vcpkg)
     if(VCPKG_INSTALLED_DIR)
         install(DIRECTORY "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/" DESTINATION bin
             FILES_MATCHING PATTERN "*.dll")
