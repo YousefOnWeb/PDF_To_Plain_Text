@@ -120,7 +120,9 @@ if(WIN32)
                           libharfbuzz-0.dll libpng16-16.dll libfreetype-6.dll
                           libb2-1.dll libgraphite2.dll libpcre2-16-0.dll libpcre2-8-0.dll
                           zlib1.dll libbrotlidec.dll libbrotlicommon.dll libzstd.dll
-                          libwebp-7.dll libjpeg-8.dll libtiff-6.dll)
+                          libwebp-7.dll libjpeg-8.dll libtiff-6.dll
+                          nss3.dll libnspr4.dll libplc4.dll libplds4.dll
+                          nssckbi.dll nssdbm3.dll nssutil3.dll smime3.dll ssl3.dll softokn3.dll freebl3.dll)
         # First try known prefixes, then PATH
         find_file(_found_${_dll} ${_dll}
             HINTS "${CMAKE_PREFIX_PATH}/bin" "C:/tools/msys64/ucrt64/bin" "C:/tools/msys64/mingw64/bin"
@@ -140,9 +142,8 @@ if(WIN32)
             unset(_found_${_dll} CACHE)
         endif()
     endforeach()
-    # Version-agnostic fallback: copy any libicu*.dll / liblcms2*.dll that exists (covers ICU 78, 79, etc.)
-    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll")
-        file(GLOB _glob_dlls "${CMAKE_PREFIX_PATH}/bin/${_pattern}" "C:/tools/msys64/ucrt64/bin/${_pattern}" "C:/tools/msys64/mingw64/bin/${_pattern}")
+    # Version-agnostic fallback: copy any libicu*.dll / liblcms2*.dll / nss*.dll that exists (covers ICU 78, 79, etc.)
+    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll" "nss*.dll" "libnspr*.dll" "libplc*.dll" "libplds*.dll" "smime*.dll" "ssl*.dll" "softokn*.dll" "freebl*.dll")
         foreach(_g IN LISTS _glob_dlls)
             get_filename_component(_g_name "${_g}" NAME)
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
@@ -160,6 +161,12 @@ if(WIN32)
             COMMAND_EXPAND_LISTS
             COMMENT "Copying TARGET_RUNTIME_DLLS if any"
         )
+        # Ultimate fallback: GET_RUNTIME_DEPENDENCIES recursively finds nss/nspr etc. without hardcoding versions
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -D TARGET_FILE=$<TARGET_FILE:${PROJECT_NAME}> -D DEST_DIR=$<TARGET_FILE_DIR:${PROJECT_NAME}> -D SEARCH_DIRS="${CMAKE_PREFIX_PATH}/bin;C:/tools/msys64/ucrt64/bin;C:/tools/msys64/mingw64/bin" -P "${CMAKE_SOURCE_DIR}/cmake/CopyRuntimeDeps.cmake"
+            COMMAND_EXPAND_LISTS
+            COMMENT "Copying transitive runtime DLLs (GET_RUNTIME_DEPENDENCIES)"
+        )
     endif()
 
     # Install-time: bundle runtime DLLs for ZIP/NSIS (MSYS2 + vcpkg)
@@ -168,7 +175,12 @@ if(WIN32)
                           libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll
                           liblcms2-2.dll libdouble-conversion.dll
                           libicuin78.dll libicuuc78.dll libicudt78.dll
-                          libharfbuzz-0.dll libpng16-16.dll libfreetype-6.dll)
+                          libharfbuzz-0.dll libpng16-16.dll libfreetype-6.dll
+                          libb2-1.dll libgraphite2.dll libpcre2-16-0.dll libpcre2-8-0.dll
+                          zlib1.dll libbrotlidec.dll libbrotlicommon.dll libzstd.dll
+                          libwebp-7.dll libjpeg-8.dll libtiff-6.dll
+                          nss3.dll libnspr4.dll libplc4.dll libplds4.dll
+                          nssckbi.dll nssdbm3.dll nssutil3.dll smime3.dll ssl3.dll softokn3.dll freebl3.dll)
         if(EXISTS "${CMAKE_PREFIX_PATH}/bin/${_dll}")
             install(FILES "${CMAKE_PREFIX_PATH}/bin/${_dll}" DESTINATION bin)
         elseif(EXISTS "C:/tools/msys64/ucrt64/bin/${_dll}")
@@ -177,9 +189,9 @@ if(WIN32)
             install(FILES "C:/tools/msys64/mingw64/bin/${_dll}" DESTINATION bin)
         endif()
     endforeach()
-    # Version-agnostic install for ICU/lcms2
-    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll")
-        file(GLOB _inst_glob "${CMAKE_PREFIX_PATH}/bin/${_pattern}" "C:/tools/msys64/ucrt64/bin/${_pattern}")
+    # Version-agnostic install for ICU/lcms2/nss
+    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll" "nss*.dll" "libnspr*.dll" "libplc*.dll" "libplds*.dll" "smime*.dll" "ssl*.dll" "softokn*.dll" "freebl*.dll")
+        file(GLOB _inst_glob "${CMAKE_PREFIX_PATH}/bin/${_pattern}" "C:/tools/msys64/ucrt64/bin/${_pattern}" "C:/tools/msys64/mingw64/bin/${_pattern}")
         if(_inst_glob)
             install(FILES ${_inst_glob} DESTINATION bin)
         endif()
