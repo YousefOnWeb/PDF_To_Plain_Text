@@ -62,6 +62,8 @@ set(SOURCES
     src/DropFrame.h
     src/PdfExtractor.cpp
     src/PdfExtractor.h
+    src/FileRowWidget.cpp
+    src/FileRowWidget.h
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})

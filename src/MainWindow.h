@@ -9,8 +9,10 @@ class QPushButton;
 class QProgressBar;
 class QLabel;
 class QThread;
+class QStackedWidget;
 class DropFrame;
 class PdfExtractor;
+class FileRowWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,6 +30,9 @@ private slots:
     void onFileFailed(const QString &pdf, const QString &error);
     void onExtractionFinished(int succeeded, int failed);
     void clearQueue();
+    void removeSelected();
+    void onUndo();
+    void onSelectionChanged();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -42,13 +47,19 @@ private:
     DropFrame *m_dropFrame = nullptr;
     QLabel *m_dropLabel = nullptr;
     QListWidget *m_fileList = nullptr;
+    QStackedWidget *m_listStack = nullptr;
     QLabel *m_emptyPlaceholder = nullptr;
     QLineEdit *m_outputEdit = nullptr;
     QPushButton *m_changeBtn = nullptr;
     QPushButton *m_extractBtn = nullptr;
     QPushButton *m_clearBtn = nullptr;
+    QPushButton *m_removeSelectedBtn = nullptr;
     QProgressBar *m_progress = nullptr;
     QLabel *m_statusLabel = nullptr;
+    QWidget *m_undoToast = nullptr;
+    QLabel *m_undoLabel = nullptr;
+    QPushButton *m_undoBtn = nullptr;
+    class QTimer *m_undoTimer = nullptr;
     void updateEmptyPlaceholder();
 
     QStringList m_queuedFiles;

@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "DropFrame.h"
 #include "PdfExtractor.h"
+#include "FileRowWidget.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -16,6 +17,17 @@
 #include <QThread>
 #include <QMessageBox>
 #include <QDir>
+#include <QStackedWidget>
+#include <QTimer>
+#include <QResizeEvent>
+
+struct UndoState {
+    QStringList paths;
+    QList<int> rows;
+};
+
+static UndoState s_undoState;
+static QTimer *s_undoTimerPtr = nullptr;
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("PDF To Plain Text"));
@@ -62,12 +74,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     root->addWidget(m_dropFrame);
 
-    // File list — dark cohesive, responsive via Expanding + ScrollBar
+    // File list header
     auto *listHeader = new QHBoxLayout();
     auto *queueTitle = new QLabel(QStringLiteral("Queued files:"), this);
     queueTitle->setStyleSheet("font-weight: 600; color: #E2E8F0; font-size: 11px;");
     listHeader->addWidget(queueTitle);
     listHeader->addStretch();
+    m_removeSelectedBtn = new QPushButton(QStringLiteral("Remove Selected"), this);
+    m_removeSelectedBtn->setToolTip(QStringLiteral("Remove selected files from queue"));
+    m_removeSelectedBtn->setEnabled(false);
+    m_removeSelectedBtn->setStyleSheet(
+        "QPushButton { color: #A0AEC0; font-size: 11px; border: 1px solid #4A5568; border-radius: 4px; padding: 3px 8px; background: #2D2D2D; }"
+        "QPushButton:disabled { color: #6B7280; border-color: #3A3A3A; background: #252525; }"
+        "QPushButton:!disabled:hover { color: #F87171; border-color: #EF4444; background: #3A3A3A; }");
+    listHeader->addWidget(m_removeSelectedBtn);
     m_clearBtn = new QPushButton(QStringLiteral("Clear"), this);
     m_clearBtn->setToolTip(QStringLiteral("Remove all files from the queue."));
     m_clearBtn->setFlat(true);
@@ -75,37 +95,72 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     listHeader->addWidget(m_clearBtn);
     root->addLayout(listHeader);
 
-    // Container for list + empty placeholder — ensures proper flex constraints, no overlap
+    // List container with QStackedWidget for flawless empty placeholder (fixes top-left bug)
     auto *listContainer = new QWidget(this);
+    listContainer->setObjectName("ListContainer");
     listContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    auto *listStack = new QVBoxLayout(listContainer);
-    listStack->setContentsMargins(0, 0, 0, 0);
-    listStack->setSpacing(0);
+    auto *listContainerLay = new QVBoxLayout(listContainer);
+    listContainerLay->setContentsMargins(0, 0, 0, 0);
+    listContainerLay->setSpacing(6);
 
-    m_fileList = new QListWidget(listContainer);
+    m_listStack = new QStackedWidget(listContainer);
+    m_listStack->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    // Page 0: file list
+    m_fileList = new QListWidget(m_listStack);
     m_fileList->setAlternatingRowColors(false);
     m_fileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_fileList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_fileList->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_fileList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_fileList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_fileList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_fileList->setMinimumHeight(90);
     m_fileList->setStyleSheet(
         "QListWidget { border: 1px solid #4A5568; border-radius: 6px; background: #2D2D2D; color: #E0E0E0; }"
-        "QListWidget::item { padding: 6px 8px; border: none; color: #E0E0E0; }"
-        "QListWidget::item:selected { background: #3B82F6; color: white; }"
-        "QListWidget::item:hover { background: #3A3A3A; }");
-    listStack->addWidget(m_fileList);
+        "QListWidget::item { padding: 0px; border: none; background: transparent; }"
+        "QListWidget::item:selected { background: #3B82F6; }");
+    m_listStack->addWidget(m_fileList);
 
-    root->addWidget(listContainer, 1);
-
-    m_emptyPlaceholder = new QLabel(QStringLiteral("No files queued. Drag files above to begin."), m_fileList->viewport());
+    // Page 1: empty placeholder — perfectly centered via layout, no viewport geometry hack
+    auto *emptyPage = new QWidget(m_listStack);
+    emptyPage->setStyleSheet("background: #2D2D2D; border: 1px solid #4A5568; border-radius: 6px;");
+    auto *emptyLay = new QVBoxLayout(emptyPage);
+    emptyLay->setContentsMargins(12, 12, 12, 12);
+    m_emptyPlaceholder = new QLabel(QStringLiteral("No files queued. Drag files above to begin."), emptyPage);
     m_emptyPlaceholder->setAlignment(Qt::AlignCenter);
     m_emptyPlaceholder->setWordWrap(true);
-    m_emptyPlaceholder->setStyleSheet("color: #A0AEC0; font-size: 11px; padding: 18px; background: transparent; border: none;");
-    m_emptyPlaceholder->setAttribute(Qt::WA_TransparentForMouseEvents);
-    m_emptyPlaceholder->setGeometry(m_fileList->viewport()->rect());
-    m_emptyPlaceholder->show();
+    m_emptyPlaceholder->setStyleSheet("color: #A0AEC0; font-size: 11px; background: transparent; border: none;");
+    emptyLay->addWidget(m_emptyPlaceholder, 1, Qt::AlignCenter);
+    m_listStack->addWidget(emptyPage);
+
+    listContainerLay->addWidget(m_listStack, 1);
+
+    // Undo toast — transient, non-blocking, at bottom of queue container
+    m_undoToast = new QWidget(listContainer);
+    m_undoToast->setObjectName("UndoToast");
+    m_undoToast->setStyleSheet("QWidget#UndoToast { background: #3A3A3A; border: 1px solid #4A5568; border-radius: 6px; }");
+    auto *toastLay = new QHBoxLayout(m_undoToast);
+    toastLay->setContentsMargins(10, 6, 10, 6);
+    toastLay->setSpacing(8);
+    m_undoLabel = new QLabel(m_undoToast);
+    m_undoLabel->setStyleSheet("color: #E0E0E0; font-size: 11px; border: none; background: transparent;");
+    toastLay->addWidget(m_undoLabel, 1);
+    m_undoBtn = new QPushButton(QStringLiteral("Undo"), m_undoToast);
+    m_undoBtn->setCursor(Qt::PointingHandCursor);
+    m_undoBtn->setStyleSheet(
+        "QPushButton { background: #3B82F6; color: white; border: none; border-radius: 4px; padding: 4px 10px; font-weight: 600; }"
+        "QPushButton:hover { background: #2563EB; }");
+    toastLay->addWidget(m_undoBtn);
+    m_undoToast->setVisible(false);
+    listContainerLay->addWidget(m_undoToast);
+
+    m_undoTimer = new QTimer(this);
+    m_undoTimer->setSingleShot(true);
+    m_undoTimer->setInterval(4000);
+    connect(m_undoTimer, &QTimer::timeout, m_undoToast, &QWidget::hide);
+    connect(m_undoBtn, &QPushButton::clicked, this, &MainWindow::onUndo);
+
+    root->addWidget(listContainer, 1);
 
     // Output directory selector — dark input, visible text
     auto *outRow = new QHBoxLayout();
@@ -176,6 +231,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Settings
     loadSettings();
     updateEmptyPlaceholder();
+    onSelectionChanged();
 
     // Connections
     connect(m_dropFrame, &DropFrame::filesDropped, this, &MainWindow::onDropFiles);
@@ -183,6 +239,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_changeBtn, &QPushButton::clicked, this, &MainWindow::onChangeOutputDir);
     connect(m_extractBtn, &QPushButton::clicked, this, &MainWindow::onExtractClicked);
     connect(m_clearBtn, &QPushButton::clicked, this, &MainWindow::clearQueue);
+    connect(m_removeSelectedBtn, &QPushButton::clicked, this, &MainWindow::removeSelected);
+    connect(m_fileList, &QListWidget::itemSelectionChanged, this, &MainWindow::onSelectionChanged);
 
     // Cross-thread: MainWindow -> PdfExtractor
     connect(this, &MainWindow::destroyed, m_workerThread, &QThread::quit);
@@ -229,13 +287,8 @@ QString MainWindow::defaultDocumentsPath() const {
 
 void MainWindow::updateEmptyPlaceholder() {
     bool empty = m_queuedFiles.isEmpty();
-    if (m_emptyPlaceholder) {
-        m_emptyPlaceholder->setVisible(empty);
-        if (empty && m_fileList && m_fileList->viewport()) {
-            m_emptyPlaceholder->setGeometry(m_fileList->viewport()->rect());
-            m_emptyPlaceholder->raise();
-        }
-    }
+    if (m_listStack) m_listStack->setCurrentIndex(empty ? 1 : 0);
+    if (m_fileList) m_fileList->setVisible(!empty);
 }
 
 void MainWindow::addFiles(const QStringList &paths) {
@@ -245,7 +298,33 @@ void MainWindow::addFiles(const QStringList &paths) {
         QFileInfo fi(p);
         if (!fi.exists() || !fi.isFile()) continue;
         m_queuedFiles.append(p);
-        m_fileList->addItem(fi.fileName() + QStringLiteral("  —  ") + QDir::toNativeSeparators(p));
+        auto *item = new QListWidgetItem(m_fileList);
+        item->setData(Qt::UserRole, p);
+        item->setSizeHint(QSize(0, 36));
+        m_fileList->addItem(item);
+        auto *row = new FileRowWidget(p, m_fileList);
+        m_fileList->setItemWidget(item, row);
+        connect(row, &FileRowWidget::removeRequested, this, [this, row]() {
+            // Find row of this widget
+            for (int i = 0; i < m_fileList->count(); ++i) {
+                if (m_fileList->itemWidget(m_fileList->item(i)) == row) {
+                    // Single remove with undo
+                    s_undoState.paths = QStringList{ m_queuedFiles.at(i) };
+                    s_undoState.rows = QList<int>{ i };
+                    m_queuedFiles.removeAt(i);
+                    delete m_fileList->takeItem(i);
+                    updateEmptyPlaceholder();
+                    onSelectionChanged();
+                    m_undoLabel->setText(QStringLiteral("Removed 1 file"));
+                    m_undoToast->setVisible(true);
+                    m_undoTimer->start();
+                    m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
+                    m_statusLabel->setText(QStringLiteral("Removed 1 file — Undo available for 4s"));
+                    m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
+                    break;
+                }
+            }
+        });
         ++added;
     }
     if (added > 0) {
@@ -254,6 +333,7 @@ void MainWindow::addFiles(const QStringList &paths) {
     }
     m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
     updateEmptyPlaceholder();
+    onSelectionChanged();
 }
 
 void MainWindow::onBrowseClicked() {
@@ -298,6 +378,7 @@ void MainWindow::onExtractClicked() {
 void MainWindow::setExtracting(bool extracting) {
     m_extractBtn->setEnabled(!extracting);
     m_clearBtn->setEnabled(!extracting);
+    m_removeSelectedBtn->setEnabled(!extracting && m_fileList->selectedItems().size() > 0);
     m_changeBtn->setEnabled(!extracting);
     m_dropFrame->setEnabled(!extracting);
     m_progress->setVisible(extracting);
@@ -327,9 +408,17 @@ void MainWindow::onExtractionFinished(int succeeded, int failed) {
     if (failed == 0) {
         m_statusLabel->setStyleSheet("color: #4ADE80; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Converted %1 file(s) successfully.").arg(succeeded));
+        // Store for undo before clearing
+        s_undoState.paths = m_queuedFiles;
+        QList<int> rows;
+        for (int i = 0; i < s_undoState.paths.size(); ++i) rows.append(i);
+        s_undoState.rows = rows;
         m_queuedFiles.clear();
         m_fileList->clear();
         m_extractBtn->setEnabled(false);
+        m_undoLabel->setText(QStringLiteral("Converted %1 file(s) — queue cleared").arg(succeeded));
+        m_undoToast->setVisible(true);
+        m_undoTimer->start();
     } else if (succeeded > 0) {
         m_statusLabel->setStyleSheet("color: #FBBF24; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Converted %1 file(s), %2 failed. Check output folder: %3").arg(QString::number(succeeded), QString::number(failed), QDir::toNativeSeparators(m_outputDir)));
@@ -338,9 +427,15 @@ void MainWindow::onExtractionFinished(int succeeded, int failed) {
         m_statusLabel->setText(QStringLiteral("Conversion failed for %1 file(s).").arg(failed));
     }
     updateEmptyPlaceholder();
+    onSelectionChanged();
 }
 
 void MainWindow::clearQueue() {
+    if (m_queuedFiles.isEmpty()) return;
+    s_undoState.paths = m_queuedFiles;
+    QList<int> rows;
+    for (int i = 0; i < s_undoState.paths.size(); ++i) rows.append(i);
+    s_undoState.rows = rows;
     m_queuedFiles.clear();
     m_fileList->clear();
     m_extractBtn->setEnabled(false);
@@ -348,9 +443,88 @@ void MainWindow::clearQueue() {
     m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
     m_progress->setVisible(false);
     updateEmptyPlaceholder();
+    onSelectionChanged();
+    m_undoLabel->setText(QStringLiteral("Cleared %1 file(s)").arg(s_undoState.paths.size()));
+    m_undoToast->setVisible(true);
+    m_undoTimer->start();
+}
+
+void MainWindow::removeSelected() {
+    auto selected = m_fileList->selectedItems();
+    if (selected.isEmpty()) return;
+    // Collect rows descending so removal doesn't shift indices
+    QList<int> rows;
+    for (auto *it : selected) rows.append(m_fileList->row(it));
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    s_undoState.paths.clear();
+    s_undoState.rows.clear();
+    for (int r : rows) {
+        s_undoState.paths.prepend(m_queuedFiles.at(r));
+        s_undoState.rows.prepend(r);
+        m_queuedFiles.removeAt(r);
+        delete m_fileList->takeItem(r);
+    }
+    updateEmptyPlaceholder();
+    onSelectionChanged();
+    m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
+    m_undoLabel->setText(QStringLiteral("Removed %1 file(s)").arg(rows.size()));
+    m_undoToast->setVisible(true);
+    m_undoTimer->start();
+    m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
+    m_statusLabel->setText(QStringLiteral("Removed %1 file(s) — Undo available for 4s").arg(rows.size()));
+}
+
+void MainWindow::onUndo() {
+    m_undoTimer->stop();
+    m_undoToast->setVisible(false);
+    if (s_undoState.paths.isEmpty()) return;
+    // Re-insert in ascending row order
+    QList<QPair<int, QString>> pairs;
+    for (int i = 0; i < s_undoState.paths.size(); ++i) pairs.append({s_undoState.rows[i], s_undoState.paths[i]});
+    std::sort(pairs.begin(), pairs.end(), [](auto &a, auto &b){ return a.first < b.first; });
+    for (auto &pr : pairs) {
+        int r = qMin(pr.first, m_queuedFiles.size());
+        m_queuedFiles.insert(r, pr.second);
+        auto *item = new QListWidgetItem();
+        item->setData(Qt::UserRole, pr.second);
+        item->setSizeHint(QSize(0, 36));
+        m_fileList->insertItem(r, item);
+        auto *row = new FileRowWidget(pr.second, m_fileList);
+        m_fileList->setItemWidget(item, row);
+        connect(row, &FileRowWidget::removeRequested, this, [this, row]() {
+            for (int i = 0; i < m_fileList->count(); ++i) {
+                if (m_fileList->itemWidget(m_fileList->item(i)) == row) {
+                    s_undoState.paths = QStringList{ m_queuedFiles.at(i) };
+                    s_undoState.rows = QList<int>{ i };
+                    m_queuedFiles.removeAt(i);
+                    delete m_fileList->takeItem(i);
+                    updateEmptyPlaceholder();
+                    onSelectionChanged();
+                    m_undoLabel->setText(QStringLiteral("Removed 1 file"));
+                    m_undoToast->setVisible(true);
+                    m_undoTimer->start();
+                    m_statusLabel->setText(QStringLiteral("Removed 1 file — Undo available for 4s"));
+                    m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
+                    break;
+                }
+            }
+        });
+    }
+    s_undoState.paths.clear();
+    s_undoState.rows.clear();
+    updateEmptyPlaceholder();
+    onSelectionChanged();
+    m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
+    m_statusLabel->setStyleSheet("color: #4ADE80; font-size: 11px;");
+    m_statusLabel->setText(QStringLiteral("Undo successful"));
+}
+
+void MainWindow::onSelectionChanged() {
+    bool hasSel = !m_fileList->selectedItems().isEmpty() && !m_queuedFiles.isEmpty();
+    m_removeSelectedBtn->setEnabled(hasSel);
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event) {
     QMainWindow::resizeEvent(event);
-    updateEmptyPlaceholder();
+    // QStackedWidget handles placeholder centering automatically — no manual geometry needed
 }
