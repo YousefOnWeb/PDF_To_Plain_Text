@@ -29,6 +29,9 @@ private slots:
     void onExtractionFinished(int succeeded, int failed);
     void clearQueue();
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private:
     void loadSettings();
     void saveOutputDir(const QString &dir);
@@ -39,12 +42,14 @@ private:
     DropFrame *m_dropFrame = nullptr;
     QLabel *m_dropLabel = nullptr;
     QListWidget *m_fileList = nullptr;
+    QLabel *m_emptyPlaceholder = nullptr;
     QLineEdit *m_outputEdit = nullptr;
     QPushButton *m_changeBtn = nullptr;
     QPushButton *m_extractBtn = nullptr;
     QPushButton *m_clearBtn = nullptr;
     QProgressBar *m_progress = nullptr;
     QLabel *m_statusLabel = nullptr;
+    void updateEmptyPlaceholder();
 
     QStringList m_queuedFiles;
     QString m_outputDir;

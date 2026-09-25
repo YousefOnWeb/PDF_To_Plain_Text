@@ -20,90 +20,129 @@
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("PDF To Plain Text"));
     resize(720, 560);
-    setMinimumSize(620, 480);
+    setMinimumSize(640, 520);
 
     auto *central = new QWidget(this);
+    central->setObjectName("Central");
     setCentralWidget(central);
 
     auto *root = new QVBoxLayout(central);
-    root->setContentsMargins(18, 18, 18, 18);
-    root->setSpacing(12);
+    root->setContentsMargins(20, 20, 20, 20);
+    root->setSpacing(14);
 
-    // Header
+    // Header — high contrast on dark (#E2E8F0 on #1E1E1E > 14:1)
     auto *header = new QLabel(QStringLiteral("Convert PDF documents to plain text."), this);
     header->setObjectName("HeaderLabel");
-    header->setStyleSheet("QLabel#HeaderLabel { font-size: 14px; font-weight: 600; color: #1e293b; }");
+    header->setStyleSheet("QLabel#HeaderLabel { font-size: 15px; font-weight: 700; color: #E2E8F0; }");
     root->addWidget(header);
 
-    auto *sub = new QLabel(QStringLiteral("Text is extracted without images or formatting - ready for study materials."), this);
-    sub->setStyleSheet("color: #64748b; font-size: 11px;");
+    auto *sub = new QLabel(QStringLiteral("Text is extracted without images or formatting — ready for study materials."), this);
+    sub->setStyleSheet("color: #A0AEC0; font-size: 11px;");
     sub->setWordWrap(true);
     root->addWidget(sub);
 
-    // Drop area
+    // Drop area — dark charcoal, not jarring white
     m_dropFrame = new DropFrame(this);
-    m_dropFrame->setMinimumHeight(120);
+    m_dropFrame->setMinimumHeight(110);
+    m_dropFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto *dropLayout = new QVBoxLayout(m_dropFrame);
     dropLayout->setAlignment(Qt::AlignCenter);
     dropLayout->setSpacing(4);
+    dropLayout->setContentsMargins(12, 12, 12, 12);
 
     m_dropLabel = new QLabel(QStringLiteral("Drop PDF files here, or Click to browse."), m_dropFrame);
     m_dropLabel->setAlignment(Qt::AlignCenter);
-    m_dropLabel->setStyleSheet("color: #334155; font-size: 13px; font-weight: 500; border: none; background: transparent;");
+    m_dropLabel->setStyleSheet("color: #E0E0E0; font-size: 13px; font-weight: 600; border: none; background: transparent;");
     dropLayout->addWidget(m_dropLabel);
 
-    auto *hint = new QLabel(QStringLiteral("Supports batch processing - queue multiple files at once."), m_dropFrame);
+    auto *hint = new QLabel(QStringLiteral("Supports batch processing — queue multiple files at once."), m_dropFrame);
     hint->setAlignment(Qt::AlignCenter);
-    hint->setStyleSheet("color: #94a3b8; font-size: 11px; border: none; background: transparent;");
+    hint->setStyleSheet("color: #A0AEC0; font-size: 11px; border: none; background: transparent;");
     dropLayout->addWidget(hint);
 
     root->addWidget(m_dropFrame);
 
-    // File list
+    // File list — dark cohesive, responsive via Expanding + ScrollBar
     auto *listHeader = new QHBoxLayout();
     auto *queueTitle = new QLabel(QStringLiteral("Queued files:"), this);
-    queueTitle->setStyleSheet("font-weight: 600; color: #334155; font-size: 11px;");
+    queueTitle->setStyleSheet("font-weight: 600; color: #E2E8F0; font-size: 11px;");
     listHeader->addWidget(queueTitle);
     listHeader->addStretch();
     m_clearBtn = new QPushButton(QStringLiteral("Clear"), this);
     m_clearBtn->setToolTip(QStringLiteral("Remove all files from the queue."));
     m_clearBtn->setFlat(true);
-    m_clearBtn->setStyleSheet("color: #ef4444; font-size: 11px;");
+    m_clearBtn->setStyleSheet("QPushButton { color: #F87171; font-size: 11px; border: none; } QPushButton:hover { color: #EF4444; }");
     listHeader->addWidget(m_clearBtn);
     root->addLayout(listHeader);
 
-    m_fileList = new QListWidget(this);
-    m_fileList->setAlternatingRowColors(true);
-    m_fileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_fileList->setStyleSheet(
-        "QListWidget { border: 1px solid #e2e8f0; border-radius: 6px; background: white; }"
-        "QListWidget::item { padding: 4px 8px; }");
-    m_fileList->setMinimumHeight(140);
-    // Empty state placeholder handled via status label
-    root->addWidget(m_fileList, 1);
+    // Container for list + empty placeholder — ensures proper flex constraints, no overlap
+    auto *listContainer = new QWidget(this);
+    listContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    auto *listStack = new QVBoxLayout(listContainer);
+    listStack->setContentsMargins(0, 0, 0, 0);
+    listStack->setSpacing(0);
 
-    // Output directory selector
+    m_fileList = new QListWidget(listContainer);
+    m_fileList->setAlternatingRowColors(false);
+    m_fileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_fileList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_fileList->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_fileList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_fileList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_fileList->setMinimumHeight(90);
+    m_fileList->setStyleSheet(
+        "QListWidget { border: 1px solid #4A5568; border-radius: 6px; background: #2D2D2D; color: #E0E0E0; }"
+        "QListWidget::item { padding: 6px 8px; border: none; color: #E0E0E0; }"
+        "QListWidget::item:selected { background: #3B82F6; color: white; }"
+        "QListWidget::item:hover { background: #3A3A3A; }");
+    listStack->addWidget(m_fileList);
+
+    root->addWidget(listContainer, 1);
+
+    m_emptyPlaceholder = new QLabel(QStringLiteral("No files queued. Drag files above to begin."), m_fileList->viewport());
+    m_emptyPlaceholder->setAlignment(Qt::AlignCenter);
+    m_emptyPlaceholder->setWordWrap(true);
+    m_emptyPlaceholder->setStyleSheet("color: #A0AEC0; font-size: 11px; padding: 18px; background: transparent; border: none;");
+    m_emptyPlaceholder->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_emptyPlaceholder->setGeometry(m_fileList->viewport()->rect());
+    m_emptyPlaceholder->show();
+
+    // Output directory selector — dark input, visible text
     auto *outRow = new QHBoxLayout();
+    outRow->setSpacing(8);
     auto *outLabel = new QLabel(QStringLiteral("Output Folder:"), this);
-    outLabel->setStyleSheet("font-weight: 600; color: #334155; font-size: 11px;");
+    outLabel->setStyleSheet("font-weight: 600; color: #E2E8F0; font-size: 11px;");
+    outLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     outRow->addWidget(outLabel);
 
     m_outputEdit = new QLineEdit(this);
     m_outputEdit->setReadOnly(true);
     m_outputEdit->setPlaceholderText(QStringLiteral("Choose output folder..."));
-    m_outputEdit->setStyleSheet("QLineEdit { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; background: #f8fafc; }");
+    m_outputEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_outputEdit->setMinimumHeight(28);
+    m_outputEdit->setStyleSheet(
+        "QLineEdit { border: 1px solid #4A5568; border-radius: 6px; padding: 6px 10px; background: #2D2D2D; color: #E0E0E0; selection-background-color: #3B82F6; }"
+        "QLineEdit:read-only { color: #E0E0E0; }");
     outRow->addWidget(m_outputEdit, 1);
 
     m_changeBtn = new QPushButton(QStringLiteral("Change..."), this);
     m_changeBtn->setToolTip(QStringLiteral("Select where the generated .txt files will be saved."));
+    m_changeBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_changeBtn->setStyleSheet(
+        "QPushButton { border: 1px solid #4A5568; border-radius: 6px; padding: 6px 14px; background: #3A3A3A; color: #E0E0E0; }"
+        "QPushButton:hover { background: #4A5568; }");
     outRow->addWidget(m_changeBtn);
     root->addLayout(outRow);
 
-    // Progress
+    // Progress — dark track, blue chunk
     m_progress = new QProgressBar(this);
     m_progress->setTextVisible(true);
     m_progress->setFormat(QStringLiteral("%v / %m files (%p%)"));
     m_progress->setVisible(false);
+    m_progress->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_progress->setStyleSheet(
+        "QProgressBar { border: 1px solid #4A5568; border-radius: 6px; background: #2D2D2D; color: #E0E0E0; text-align: center; padding: 2px; }"
+        "QProgressBar::chunk { background: #3B82F6; border-radius: 4px; }");
     root->addWidget(m_progress);
 
     // Action area
@@ -112,17 +151,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_extractBtn = new QPushButton(QStringLiteral("Extract Text"), this);
     m_extractBtn->setMinimumHeight(36);
     m_extractBtn->setMinimumWidth(140);
+    m_extractBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_extractBtn->setStyleSheet(
-        "QPushButton { background: #2563eb; color: white; border: none; border-radius: 6px; font-weight: 600; padding: 6px 16px; }"
-        "QPushButton:hover { background: #1d4ed8; }"
-        "QPushButton:disabled { background: #94a3b8; }");
+        "QPushButton { background: #2563EB; color: white; border: none; border-radius: 6px; font-weight: 700; padding: 6px 16px; }"
+        "QPushButton:hover { background: #1D4ED8; }"
+        "QPushButton:pressed { background: #1E40AF; }"
+        "QPushButton:disabled { background: #4A5568; color: #A0AEC0; }");
     m_extractBtn->setToolTip(QStringLiteral("Start converting queued PDFs to .txt files."));
     actionRow->addWidget(m_extractBtn);
     root->addLayout(actionRow);
 
     m_statusLabel = new QLabel(this);
-    m_statusLabel->setStyleSheet("color: #475569; font-size: 11px;");
+    m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
+    m_statusLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     root->addWidget(m_statusLabel);
 
     // Worker thread
@@ -133,6 +175,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     // Settings
     loadSettings();
+    updateEmptyPlaceholder();
 
     // Connections
     connect(m_dropFrame, &DropFrame::filesDropped, this, &MainWindow::onDropFiles);
@@ -156,7 +199,6 @@ MainWindow::~MainWindow() {
         m_workerThread->quit();
         m_workerThread->wait(2000);
     }
-    // m_extractor is parent-less and lives in worker thread; delete via deleteLater
     if (m_extractor) m_extractor->deleteLater();
 }
 
@@ -185,6 +227,17 @@ QString MainWindow::defaultDocumentsPath() const {
     return docs;
 }
 
+void MainWindow::updateEmptyPlaceholder() {
+    bool empty = m_queuedFiles.isEmpty();
+    if (m_emptyPlaceholder) {
+        m_emptyPlaceholder->setVisible(empty);
+        if (empty && m_fileList && m_fileList->viewport()) {
+            m_emptyPlaceholder->setGeometry(m_fileList->viewport()->rect());
+            m_emptyPlaceholder->raise();
+        }
+    }
+}
+
 void MainWindow::addFiles(const QStringList &paths) {
     int added = 0;
     for (const QString &p : paths) {
@@ -196,10 +249,11 @@ void MainWindow::addFiles(const QStringList &paths) {
         ++added;
     }
     if (added > 0) {
-        m_statusLabel->setStyleSheet("color: #475569; font-size: 11px;");
+        m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
         m_statusLabel->setText(QStringLiteral("Queued %1 file(s). Ready to extract.").arg(m_queuedFiles.size()));
     }
     m_extractBtn->setEnabled(!m_queuedFiles.isEmpty());
+    updateEmptyPlaceholder();
 }
 
 void MainWindow::onBrowseClicked() {
@@ -223,7 +277,6 @@ void MainWindow::onExtractClicked() {
         return;
     }
     if (m_outputDir.isEmpty() || !QDir(m_outputDir).exists()) {
-        // Try to create
         QDir().mkpath(m_outputDir);
         if (!QDir(m_outputDir).exists()) {
             QMessageBox::warning(this, QStringLiteral("Output folder missing"), QStringLiteral("Please choose a valid output folder."));
@@ -232,10 +285,9 @@ void MainWindow::onExtractClicked() {
     }
 
     setExtracting(true);
-    m_statusLabel->setStyleSheet("color: #2563eb; font-size: 11px;");
+    m_statusLabel->setStyleSheet("color: #60A5FA; font-size: 11px;");
     m_statusLabel->setText(QStringLiteral("Extracting %1 file(s)...").arg(m_queuedFiles.size()));
 
-    // Invoke extractor in worker thread (queued)
     const QStringList files = m_queuedFiles;
     const QString out = m_outputDir;
     QMetaObject::invokeMethod(m_extractor, [extractor = m_extractor, files, out]() {
@@ -263,30 +315,29 @@ void MainWindow::onProgressChanged(int completed, int total) {
 void MainWindow::onFileSucceeded(const QString &pdf, const QString &txt) {
     Q_UNUSED(pdf);
     Q_UNUSED(txt);
-    // Could update item styling; keep lightweight
 }
 
 void MainWindow::onFileFailed(const QString &pdf, const QString &error) {
-    m_statusLabel->setStyleSheet("color: #dc2626; font-size: 11px;");
+    m_statusLabel->setStyleSheet("color: #F87171; font-size: 11px;");
     m_statusLabel->setText(QStringLiteral("Failed: %1 — %2").arg(QFileInfo(pdf).fileName(), error));
 }
 
 void MainWindow::onExtractionFinished(int succeeded, int failed) {
     setExtracting(false);
     if (failed == 0) {
-        m_statusLabel->setStyleSheet("color: #16a34a; font-size: 11px; font-weight: 600;");
+        m_statusLabel->setStyleSheet("color: #4ADE80; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Converted %1 file(s) successfully.").arg(succeeded));
-        // Clear queue on full success
         m_queuedFiles.clear();
         m_fileList->clear();
         m_extractBtn->setEnabled(false);
     } else if (succeeded > 0) {
-        m_statusLabel->setStyleSheet("color: #d97706; font-size: 11px; font-weight: 600;");
+        m_statusLabel->setStyleSheet("color: #FBBF24; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Converted %1 file(s), %2 failed. Check output folder: %3").arg(QString::number(succeeded), QString::number(failed), QDir::toNativeSeparators(m_outputDir)));
     } else {
-        m_statusLabel->setStyleSheet("color: #dc2626; font-size: 11px; font-weight: 600;");
+        m_statusLabel->setStyleSheet("color: #F87171; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Conversion failed for %1 file(s).").arg(failed));
     }
+    updateEmptyPlaceholder();
 }
 
 void MainWindow::clearQueue() {
@@ -294,6 +345,12 @@ void MainWindow::clearQueue() {
     m_fileList->clear();
     m_extractBtn->setEnabled(false);
     m_statusLabel->setText(QStringLiteral("Queue cleared."));
-    m_statusLabel->setStyleSheet("color: #64748b; font-size: 11px;");
+    m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
     m_progress->setVisible(false);
+    updateEmptyPlaceholder();
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event) {
+    QMainWindow::resizeEvent(event);
+    updateEmptyPlaceholder();
 }

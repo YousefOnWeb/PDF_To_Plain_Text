@@ -13,16 +13,16 @@ DropFrame::DropFrame(QWidget *parent) : QFrame(parent) {
     setFrameShape(QFrame::StyledPanel);
     setCursor(Qt::PointingHandCursor);
     setObjectName("DropFrame");
-    // Dashed border via stylesheet; hover handled in paintEvent + stylesheet
+    // Dark cohesive — charcoal, high-contrast dashed border, hover bright
     setStyleSheet(
         "QFrame#DropFrame {"
-        "  border: 2px dashed #8aa0b8;"
+        "  border: 2px dashed #4A5568;"
         "  border-radius: 10px;"
-        "  background: #f7f9fc;"
+        "  background: #2D2D2D;"
         "}"
         "QFrame#DropFrame[dragHover=\"true\"] {"
-        "  border-color: #3b82f6;"
-        "  background: #eef4ff;"
+        "  border-color: #3B82F6;"
+        "  background: #252525;"
         "}"
     );
 }
