@@ -9,6 +9,7 @@
 #include <QListWidget>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QToolButton>
 #include <QProgressBar>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -248,11 +249,70 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     actionRow->addWidget(m_extractBtn);
     root->addLayout(actionRow);
 
+    auto *statusRow = new QHBoxLayout();
+    statusRow->setSpacing(6);
     m_statusLabel = new QLabel(this);
     m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
-    m_statusLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    root->addWidget(m_statusLabel);
+    m_statusLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    statusRow->addWidget(m_statusLabel, 1);
+
+    m_globalErrorBtn = new QToolButton(this);
+    m_globalErrorBtn->setText(QStringLiteral("⚠"));
+    m_globalErrorBtn->setToolTip(QStringLiteral("Show failed files"));
+    m_globalErrorBtn->setCursor(Qt::PointingHandCursor);
+    m_globalErrorBtn->setFixedSize(20, 20);
+    m_globalErrorBtn->setStyleSheet(
+        "QToolButton { border: 1px solid #FBBF24; border-radius: 4px; color: #FBBF24; background: rgba(251,191,36,0.15); font-size: 12px; }"
+        "QToolButton:hover { background: rgba(251,191,36,0.25); }");
+    m_globalErrorBtn->setVisible(false);
+    statusRow->addWidget(m_globalErrorBtn);
+    root->addLayout(statusRow);
+
+    // Global failure popover (anchored to warning icon)
+    m_globalPopover = new QFrame(this, Qt::Popup);
+    m_globalPopover->setObjectName("GlobalPopover");
+    m_globalPopover->setStyleSheet(
+        "QFrame#GlobalPopover { background: #2D2D2D; border: 1px solid #4A5568; border-radius: 8px; }"
+        "QLabel { color: #E0E0E0; background: transparent; border: none; }");
+    m_globalPopover->setMinimumWidth(320);
+    m_globalPopover->setMaximumWidth(420);
+    {
+        auto *popLay = new QVBoxLayout(m_globalPopover);
+        popLay->setContentsMargins(12, 10, 12, 10);
+        popLay->setSpacing(6);
+        auto *popTitle = new QLabel(QStringLiteral("Failed files"), m_globalPopover);
+        popTitle->setStyleSheet("font-weight: 700; color: #FBBF24; font-size: 11px;");
+        popLay->addWidget(popTitle);
+        auto *popList = new QLabel(m_globalPopover);
+        popList->setObjectName("PopoverList");
+        popList->setWordWrap(true);
+        popList->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        popList->setStyleSheet("color: #E0E0E0; font-size: 11px;");
+        popLay->addWidget(popList);
+    }
+    m_globalPopover->hide();
+
+    // Copy toast for per-file error copy (found via window()->findChild)
+    m_copyToast = new QWidget(this);
+    m_copyToast->setObjectName("CopyToast");
+    m_copyToast->setStyleSheet("QWidget#CopyToast { background: #3A3A3A; border: 1px solid #4A5568; border-radius: 6px; }");
+    {
+        auto *copyLay = new QHBoxLayout(m_copyToast);
+        copyLay->setContentsMargins(10, 6, 10, 6);
+        m_copyLabel = new QLabel(QStringLiteral("Error copied"), m_copyToast);
+        m_copyLabel->setStyleSheet("color: #E0E0E0; font-size: 11px; border: none; background: transparent;");
+        copyLay->addWidget(m_copyLabel);
+    }
+    m_copyToast->setVisible(false);
+    m_copyToast->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    // Position copy toast at bottom-center via root layout overlay - add to root but hidden
+    root->addWidget(m_copyToast);
+    m_copyToast->hide();
+    m_copyTimer = new QTimer(this);
+    m_copyTimer->setSingleShot(true);
+    m_copyTimer->setInterval(2000);
+    connect(m_copyTimer, &QTimer::timeout, m_copyToast, &QWidget::hide);
 
     // Worker thread
     m_workerThread = new QThread(this);
@@ -273,6 +333,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_clearBtn, &QPushButton::clicked, this, &MainWindow::clearQueue);
     connect(m_removeSelectedBtn, &QPushButton::clicked, this, &MainWindow::removeSelected);
     connect(m_fileList, &QListWidget::itemSelectionChanged, this, &MainWindow::onSelectionChanged);
+    connect(m_globalErrorBtn, &QToolButton::clicked, this, &MainWindow::showGlobalPopover);
 
     // Cross-thread: MainWindow -> PdfExtractor
     connect(this, &MainWindow::destroyed, m_workerThread, &QThread::quit);
@@ -399,6 +460,9 @@ void MainWindow::onExtractClicked() {
         }
     }
 
+    m_failedErrors.clear();
+    updateGlobalErrorButton();
+    if (m_globalPopover) m_globalPopover->hide();
     setExtracting(true);
     m_statusLabel->setStyleSheet("color: #60A5FA; font-size: 11px;");
     m_statusLabel->setText(QStringLiteral("Extracting %1 file(s)...").arg(m_queuedFiles.size()));
@@ -434,8 +498,17 @@ void MainWindow::onFileSucceeded(const QString &pdf, const QString &txt) {
 }
 
 void MainWindow::onFileFailed(const QString &pdf, const QString &error) {
+    m_failedErrors.insert(pdf, error);
+    for (int i = 0; i < m_fileList->count(); ++i) {
+        auto *it = m_fileList->item(i);
+        if (it->data(Qt::UserRole).toString() == pdf) {
+            if (auto *w = qobject_cast<FileRowWidget*>(m_fileList->itemWidget(it))) w->setFailed(true, error);
+            break;
+        }
+    }
     m_statusLabel->setStyleSheet("color: #F87171; font-size: 11px;");
     m_statusLabel->setText(QStringLiteral("Failed: %1 — %2").arg(QFileInfo(pdf).fileName(), error));
+    updateGlobalErrorButton();
 }
 
 void MainWindow::onExtractionFinished(int succeeded, int failed) {
@@ -443,23 +516,26 @@ void MainWindow::onExtractionFinished(int succeeded, int failed) {
     if (failed == 0) {
         m_statusLabel->setStyleSheet("color: #4ADE80; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Converted %1 file(s) successfully.").arg(succeeded));
-        // Store for undo before clearing
         s_undoState.paths = m_queuedFiles;
         QList<int> rows;
         for (int i = 0; i < s_undoState.paths.size(); ++i) rows.append(i);
         s_undoState.rows = rows;
         m_queuedFiles.clear();
         m_fileList->clear();
+        m_failedErrors.clear();
         m_extractBtn->setEnabled(false);
         m_generalStatusText = QStringLiteral("Ready");
         startUndoCountdown(QStringLiteral("Converted %1 file(s) — queue cleared").arg(succeeded));
     } else if (succeeded > 0) {
         m_statusLabel->setStyleSheet("color: #FBBF24; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Converted %1 file(s), %2 failed. Check output folder: %3").arg(QString::number(succeeded), QString::number(failed), QDir::toNativeSeparators(m_outputDir)));
+        m_generalStatusText = m_statusLabel->text();
     } else {
         m_statusLabel->setStyleSheet("color: #F87171; font-size: 11px; font-weight: 600;");
         m_statusLabel->setText(QStringLiteral("Conversion failed for %1 file(s).").arg(failed));
+        m_generalStatusText = m_statusLabel->text();
     }
+    updateGlobalErrorButton();
     updateEmptyPlaceholder();
     onSelectionChanged();
 }
@@ -576,6 +652,51 @@ void MainWindow::startStatusReset(const QString &msg, int ms) {
         m_statusLabel->setText(m_generalStatusText);
         m_statusLabel->setStyleSheet("color: #A0AEC0; font-size: 11px;");
     });
+}
+
+void MainWindow::updateGlobalErrorButton() {
+    bool hasFailed = !m_failedErrors.isEmpty();
+    if (m_globalErrorBtn) m_globalErrorBtn->setVisible(hasFailed);
+    if (hasFailed && m_globalErrorBtn) {
+        m_globalErrorBtn->setToolTip(QStringLiteral("%1 file(s) failed — click for details").arg(m_failedErrors.size()));
+    }
+}
+
+void MainWindow::showGlobalPopover() {
+    if (!m_globalPopover || m_failedErrors.isEmpty()) return;
+    auto *lbl = m_globalPopover->findChild<QLabel*>("PopoverList");
+    if (lbl) {
+        QStringList lines;
+        for (auto it = m_failedErrors.constBegin(); it != m_failedErrors.constEnd(); ++it) {
+            QFileInfo fi(it.key());
+            lines.append(QStringLiteral("%1: %2").arg(fi.fileName(), it.value()));
+        }
+        lbl->setText(lines.join(QStringLiteral("\n")));
+    }
+    m_globalPopover->adjustSize();
+    // Anchor below the warning icon
+    if (m_globalErrorBtn) {
+        QPoint pos = m_globalErrorBtn->mapToGlobal(QPoint(0, m_globalErrorBtn->height()));
+        // Keep inside screen
+        QRect screen = m_globalErrorBtn->screen()->availableGeometry();
+        QSize sz = m_globalPopover->sizeHint();
+        int x = qMin(pos.x(), screen.right() - sz.width() - 10);
+        int y = qMin(pos.y(), screen.bottom() - sz.height() - 10);
+        m_globalPopover->move(x, y);
+    }
+    m_globalPopover->show();
+    m_globalPopover->raise();
+}
+
+void MainWindow::showCopyToast(const QString &msg) {
+    if (!m_copyToast || !m_copyLabel) return;
+    m_copyLabel->setText(msg);
+    m_copyToast->setVisible(true);
+    m_copyToast->raise();
+    if (m_copyTimer) {
+        m_copyTimer->stop();
+        m_copyTimer->start();
+    }
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event) {

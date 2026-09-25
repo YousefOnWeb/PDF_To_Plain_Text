@@ -10,6 +10,7 @@ class QProgressBar;
 class QLabel;
 class QThread;
 class QStackedWidget;
+class QToolButton;
 class DropFrame;
 class PdfExtractor;
 class FileRowWidget;
@@ -67,6 +68,17 @@ private:
     void updateEmptyPlaceholder();
     void startUndoCountdown(const QString &baseMsg);
     void startStatusReset(const QString &msg, int ms = 4000);
+
+    // Global failure summary
+    QToolButton *m_globalErrorBtn = nullptr;
+    QWidget *m_globalPopover = nullptr;
+    QMap<QString, QString> m_failedErrors;
+    QWidget *m_copyToast = nullptr;
+    QLabel *m_copyLabel = nullptr;
+    QTimer *m_copyTimer = nullptr;
+    void updateGlobalErrorButton();
+    void showGlobalPopover();
+    void showCopyToast(const QString &msg);
 
     QStringList m_queuedFiles;
     QString m_outputDir;

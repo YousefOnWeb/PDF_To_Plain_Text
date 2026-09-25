@@ -6,6 +6,9 @@
 #include <QDir>
 #include <QMouseEvent>
 #include <QListWidget>
+#include <QApplication>
+#include <QClipboard>
+#include <QTimer>
 
 FileRowWidget::FileRowWidget(const QString &filePath, QWidget *parent)
     : QWidget(parent), m_filePath(filePath) {
@@ -25,6 +28,17 @@ FileRowWidget::FileRowWidget(const QString &filePath, QWidget *parent)
     m_label->setToolTip(filePath);
     lay->addWidget(m_label, 1);
 
+    m_errorBtn = new QToolButton(this);
+    m_errorBtn->setText(QStringLiteral("⚠"));
+    m_errorBtn->setToolTip(QStringLiteral(""));
+    m_errorBtn->setCursor(Qt::PointingHandCursor);
+    m_errorBtn->setFixedSize(18, 18);
+    m_errorBtn->setStyleSheet(
+        "QToolButton { border: none; border-radius: 3px; color: #F87171; background: rgba(248,113,113,0.15); font-size: 11px; }"
+        "QToolButton:hover { background: rgba(248,113,113,0.25); }");
+    m_errorBtn->setVisible(false);
+    lay->addWidget(m_errorBtn);
+
     m_removeBtn = new QToolButton(this);
     m_removeBtn->setText(QStringLiteral("×"));
     m_removeBtn->setToolTip(QStringLiteral("Remove this file"));
@@ -38,6 +52,21 @@ FileRowWidget::FileRowWidget(const QString &filePath, QWidget *parent)
     lay->addWidget(m_removeBtn);
 
     connect(m_removeBtn, &QToolButton::clicked, this, [this]() { emit removeRequested(this); });
+    connect(m_errorBtn, &QToolButton::clicked, this, [this]() {
+        if (m_error.isEmpty()) return;
+        QGuiApplication::clipboard()->setText(m_error);
+        // Brief copied feedback via tooltip
+        m_errorBtn->setToolTip(QStringLiteral("Error copied"));
+        QTimer::singleShot(1500, this, [this]() { m_errorBtn->setToolTip(m_error); });
+        // Also show parent window's copied toast if available
+        if (auto *win = window()) {
+            if (auto *toast = win->findChild<QWidget*>("CopyToast")) {
+                if (auto *lbl = toast->findChild<QLabel*>()) lbl->setText(QStringLiteral("Error copied"));
+                toast->setVisible(true);
+                QTimer::singleShot(2000, toast, &QWidget::hide);
+            }
+        }
+    });
 
     setStyleSheet(
         "QWidget#FileRow { background: transparent; }"
@@ -54,9 +83,27 @@ void FileRowWidget::leaveEvent(QEvent *event) {
     QWidget::leaveEvent(event);
 }
 
+void FileRowWidget::setFailed(bool failed, const QString &error) {
+    m_failed = failed;
+    m_error = error;
+    m_errorBtn->setVisible(failed);
+    m_errorBtn->setToolTip(failed ? error : QString());
+    if (failed) {
+        m_label->setStyleSheet("color: #FCA5A5; background: transparent; border: none;");
+        setStyleSheet(
+            "QWidget#FileRow { background: rgba(248,113,113,0.08); border-radius: 4px; }"
+            "QWidget#FileRow:hover { background: rgba(248,113,113,0.15); border-radius: 4px; }");
+    } else {
+        m_label->setStyleSheet("color: #E0E0E0; background: transparent; border: none;");
+        setStyleSheet(
+            "QWidget#FileRow { background: transparent; }"
+            "QWidget#FileRow:hover { background: #3A3A3A; border-radius: 4px; }");
+    }
+}
+
 void FileRowWidget::mousePressEvent(QMouseEvent *event) {
-    // Let remove button handle its own clicks
-    if (m_removeBtn->geometry().contains(event->pos())) {
+    // Let buttons handle their own clicks
+    if (m_removeBtn->geometry().contains(event->pos()) || m_errorBtn->geometry().contains(event->pos())) {
         QWidget::mousePressEvent(event);
         return;
     }
