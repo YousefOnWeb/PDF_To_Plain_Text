@@ -4,6 +4,8 @@
 #include <QToolButton>
 #include <QFileInfo>
 #include <QDir>
+#include <QMouseEvent>
+#include <QListWidget>
 
 FileRowWidget::FileRowWidget(const QString &filePath, QWidget *parent)
     : QWidget(parent), m_filePath(filePath) {
@@ -17,7 +19,8 @@ FileRowWidget::FileRowWidget(const QString &filePath, QWidget *parent)
     QString text = fi.fileName() + QStringLiteral("  —  ") + QDir::toNativeSeparators(filePath);
     m_label = new QLabel(text, this);
     m_label->setStyleSheet("color: #E0E0E0; background: transparent; border: none;");
-    m_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_label->setTextInteractionFlags(Qt::NoTextInteraction);
+    m_label->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     m_label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_label->setToolTip(filePath);
     lay->addWidget(m_label, 1);
@@ -49,4 +52,46 @@ void FileRowWidget::enterEvent(QEnterEvent *event) {
 void FileRowWidget::leaveEvent(QEvent *event) {
     m_removeBtn->setVisible(false);
     QWidget::leaveEvent(event);
+}
+
+void FileRowWidget::mousePressEvent(QMouseEvent *event) {
+    // Let remove button handle its own clicks
+    if (m_removeBtn->geometry().contains(event->pos())) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+    // Propagate selection to the QListWidget item that hosts this widget
+    QWidget *vp = parentWidget();
+    QListWidget *list = qobject_cast<QListWidget*>(vp ? vp->parentWidget() : nullptr);
+    if (!list) list = qobject_cast<QListWidget*>(vp);
+    if (list) {
+        for (int i = 0; i < list->count(); ++i) {
+            if (list->itemWidget(list->item(i)) == this) {
+                QListWidgetItem *it = list->item(i);
+                Qt::KeyboardModifiers mods = event->modifiers();
+                if (mods & Qt::ControlModifier) {
+                    bool sel = it->isSelected();
+                    it->setSelected(!sel);
+                    list->setCurrentItem(it);
+                } else if (mods & Qt::ShiftModifier) {
+                    int cur = list->currentRow();
+                    if (cur >= 0) {
+                        int a = qMin(cur, i), b = qMax(cur, i);
+                        list->clearSelection();
+                        for (int r = a; r <= b; ++r) list->item(r)->setSelected(true);
+                        list->setCurrentItem(it);
+                    } else {
+                        it->setSelected(true);
+                        list->setCurrentItem(it);
+                    }
+                } else {
+                    list->clearSelection();
+                    it->setSelected(true);
+                    list->setCurrentItem(it);
+                }
+                break;
+            }
+        }
+    }
+    QWidget::mousePressEvent(event);
 }
