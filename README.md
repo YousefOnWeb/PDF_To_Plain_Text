@@ -62,7 +62,9 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Clean
 ```powershell
 # From: <repo-root>\  (where CMakeLists.txt lives)
 
-# Example A — MSYS2 UCRT64 via PowerShell (explicit prefix, PATH auto-fixed by CMake):
+# Example A — MSYS2 UCRT64 via PowerShell:
+$env:PATH = "C:\tools\msys64\ucrt64\bin;$env:PATH"  # needed for moc.exe at build time (build.ps1 does this automatically)
+$env:PKG_CONFIG_PATH = "C:\tools\msys64\ucrt64\lib\pkgconfig"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:/tools/msys64/ucrt64"
 cmake --build build --parallel
 .\build\PDFToPlainText.exe   # From: <repo-root>\  — build dir is self-contained via automatic windeployqt
@@ -75,7 +77,7 @@ cmake --build build --parallel
 # cmake --build build --parallel
 ```
 
-> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. All Windows builds use the open-source MinGW-w64 GCC. With `build.ps1` or `CMAKE_PREFIX_PATH`, no manual `PATH` or DLL copying is needed — CMake guarantees `build/PDFToPlainText.exe` is runnable and `packages/*.zip` is self-contained.
+> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. All Windows builds use the open-source MinGW-w64 GCC. `build.ps1` fully automates PATH + build + `windeployqt`; manual PowerShell needs the one-time `$env:PATH` line above for `moc.exe` at build time. After `cmake --build`, `build/PDFToPlainText.exe` and `packages/*.zip` are self-contained — no `PATH` or DLL copying needed at runtime.
 
 If you prefer the MSYS2 shell directly:
 

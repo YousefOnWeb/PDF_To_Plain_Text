@@ -28,6 +28,10 @@ if(WIN32)
             set(ENV{PATH} "${_p}/bin;$ENV{PATH}")
         endif()
     endforeach()
+    # Note: AUTOMOC (moc.exe) at build time still needs Qt bin on shell PATH.
+    # build.ps1 handles this automatically. For manual PowerShell, run:
+    #   $env:PATH = "C:/tools/msys64/ucrt64/bin;$env:PATH"
+    # before cmake, or use the MSYS2 MINGW64 shell where PATH is pre-set.
 endif()
 
 # Poppler-Qt6: try Config package first (vcpkg), then pkg-config fallback (Linux/macOS system)
