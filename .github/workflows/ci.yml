@@ -211,21 +211,47 @@ jobs:
         run: cpack --config CPackConfig.cmake -B "${{ github.workspace }}/packages"
         shell: bash
 
+      # CPack leaves a _CPack_Packages staging tree (the full uncompressed
+      # install tree - 150MB/79 files on Windows, far more on macOS where it
+      # holds the whole .app with every Qt framework). Uploading it alongside
+      # the real installers is what exhausted the Node heap in
+      # actions/upload-artifact, so delete it before packaging steps.
+      - name: Drop CPack staging tree
+        run: |
+          rm -rf packages/_CPack_Packages
+          du -sh packages 2>/dev/null || true
+        shell: bash
+
       - name: List packages
-        run: ls -R packages || dir packages
+        run: ls -lh packages
         shell: bash
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
+        env:
+          # upload-artifact buffers files in memory; give it headroom
+          NODE_OPTIONS: --max-old-space-size=8192
         with:
           name: packages-${{ matrix.config }}
-          path: packages/*
+          # Only real installers, never staging directories
+          path: |
+            packages/*.exe
+            packages/*.dmg
+            packages/*.zip
+            packages/*.tar.gz
+            packages/*.deb
           if-no-files-found: error
+          compression-level: 0
 
       # --- Release on tag -----------------------------------------------------
       - name: Release (tag only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: packages/*
+          files: |
+            packages/*.exe
+            packages/*.dmg
+            packages/*.zip
+            packages/*.tar.gz
+            packages/*.deb
           generate_release_notes: true
