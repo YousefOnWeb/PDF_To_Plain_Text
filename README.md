@@ -2,7 +2,7 @@
 
 Lightweight, cross-platform desktop utility that converts PDF documents into raw plain text. Drag-and-drop batch processing, persistent output folder, and asynchronous extraction with a real-time progress bar.
 
-Built with **C++17 / Qt 6 / Poppler-Qt6 / CMake** using only open-source toolchains (GCC / MinGW-w64 / Clang).
+Built with **C++17 / Qt 6 / Poppler-Qt6 / CMake** using GCC / MinGW-w64 / Clang.
 
 ---
 
@@ -17,18 +17,20 @@ Built with **C++17 / Qt 6 / Poppler-Qt6 / CMake** using only open-source toolcha
 
 ## Prerequisites — get these your preferred way
 
-You need four things. **How** you install them is up to you — pick your preferred package manager. Examples below are just common open-source options (no proprietary tooling required).
+You need four things. **How** you install them is up to you — pick your preferred package manager. Examples below are common options.
 
-| Need | What to get | Example ways to get it (all open-source) |
-|------|-------------|------------------------------------------|
+| Need | What to get | Example ways to get it |
+|------|-------------|------------------------|
 | **CMake >= 3.21** | CMake CLI | `cmake.org` installer, `brew install cmake`, `sudo apt install cmake`, MSYS2 `pacman -S mingw-w64-x86_64-cmake` |
-| **C++ compiler** | GCC / MinGW-w64 / Clang (all open-source) | MSYS2 `pacman -S mingw-w64-x86_64-gcc`, `sudo apt install build-essential g++`, `brew install gcc`, `clang` from LLVM |
-| **Qt 6.2+ (Widgets + Concurrent)** | Qt SDK | MSYS2 `pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools`, `aqtinstall` (Python, open-source), `sudo apt install qt6-base-dev`, `brew install qt@6` |
-| **Poppler-Qt6** | Poppler with Qt6 bindings | MSYS2 `pacman -S mingw-w64-x86_64-poppler-qt6`, `vcpkg install poppler[qt6]:x64-mingw-dynamic` (MinGW triplet), `sudo apt install libpoppler-qt6-dev`, `brew install poppler` |
+| **C++ compiler** | GCC / MinGW-w64 / Clang | MSYS2 `pacman -S mingw-w64-x86_64-gcc`, `sudo apt install build-essential g++`, `brew install gcc`, `clang` from LLVM |
+| **Qt 6.2+ (Widgets + Concurrent)** | Qt SDK | MSYS2 `pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools`, `aqtinstall`, `sudo apt install qt6-base-dev`, `brew install qt@6` |
+| **Poppler-Qt6** | Poppler with Qt6 bindings | MSYS2 `pacman -S mingw-w64-x86_64-poppler-qt6`, `sudo apt install libpoppler-qt6-dev`, `vcpkg install poppler[qt]:x64-mingw-dynamic`. **On macOS, see the note below** |
 
 > After you install them, **note where they landed** — you will point CMake at those locations in the next section. You do not need to copy DLLs manually; the build automates `windeployqt` + runtime DLL deployment so `build/PDFToPlainText.exe` runs immediately without editing `PATH`.
 
-The repository also ships a `vcpkg.json` manifest so `vcpkg` with the MinGW triplet can fetch Poppler automatically.
+The repository also ships a `vcpkg.json` manifest so `vcpkg` with the MinGW triplet can fetch Poppler automatically. Note the vcpkg feature is called **`qt`**, not `qt6` — `vcpkg install poppler[qt]:x64-mingw-dynamic`.
+
+> **macOS: you must build Poppler yourself.** `brew install poppler` cannot work here — Homebrew's formula hardcodes `-DENABLE_QT6=OFF`, so it ships no `poppler-qt6.pc` and no Qt6 headers. See [Build Poppler on macOS](#build-poppler-on-macos).
 
 ---
 
@@ -47,7 +49,7 @@ If you installed both via a system package manager (`apt`/`brew`/`pacman` in MSY
 
 ### 2) Configure and build
 
-#### Windows (PowerShell only, open-source toolchain)
+#### Windows (PowerShell only)
 
 **Guaranteed one-click (recommended):**
 ```powershell
@@ -77,7 +79,9 @@ cmake --build build --parallel
 # cmake --build build --parallel
 ```
 
-> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. All Windows builds use the open-source MinGW-w64 GCC. `build.ps1` fully automates PATH + build + `windeployqt`; manual PowerShell needs the one-time `$env:PATH` line above for `moc.exe` at build time. After `cmake --build`, `build/PDFToPlainText.exe` and `packages/*.zip` are self-contained — no `PATH` or DLL copying needed at runtime.
+> Do **not** use `cmd.exe`. Run PowerShell or the MSYS2 `MINGW64` shell. `build.ps1` fully automates PATH + build + `windeployqt`; manual PowerShell needs the one-time `$env:PATH` line above for `moc.exe` at build time. After `cmake --build`, `build/PDFToPlainText.exe` and `packages/*.zip` are self-contained — no `PATH` or DLL copying needed at runtime.
+
+> **Keep your MinGW variant consistent.** MSYS2 ships two incompatible ABIs — `ucrt64` and `mingw64`. Qt and Poppler must both come from the same one. Mixing them (e.g. `ucrt64` Qt with `mingw64` GCC) fails at link time with undefined C++ runtime symbols. MSYS2's `MINGW64` shell uses `mingw64`; if you use `ucrt64` (as `build.ps1` detects), build from a `ucrt64` shell or set `PATH`/`PKG_CONFIG_PATH` to the `ucrt64` prefix exactly as shown above.
 
 If you prefer the MSYS2 shell directly:
 
@@ -101,13 +105,50 @@ cmake --build build --parallel
 
 #### macOS
 
+Poppler must be built from source first — see [Build Poppler on macOS](#build-poppler-on-macos). Then:
+
 ```bash
 # From: <repo-root>/  (where CMakeLists.txt lives)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-# If Qt is from brew: cmake -S . -B build -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$POPPLER_PREFIX"
 cmake --build build --parallel
-./build/PDFToPlainText.app/Contents/MacOS/PDFToPlainText
-# or: open ./build/PDFToPlainText.app
+open ./build/PDFToPlainText.app
+```
+
+### Build Poppler on macOS
+
+Run from the **repository root**. `brew install poppler` will not work (its formula hardcodes `-DENABLE_QT6=OFF`).
+
+```bash
+# From: <repo-root>/
+brew install cairo fontconfig freetype harfbuzz jpeg-turbo libpng \
+             libtiff little-cms2 nspr nss openjpeg libiconv \
+             zlib gettext gperf ninja pkgconf clang-format
+# nss/clang-format are not optional: poppler requires NSS3 >= 3.68, and uses
+# clang-format to generate the font width tables.
+
+POPPLER_VERSION=26.04.0
+POPPLER_PREFIX="$HOME/.local/poppler"
+curl -fsSL "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" | tar xJ
+cmake -S "poppler-${POPPLER_VERSION}" -B poppler-build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$POPPLER_PREFIX" \
+  -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)" \
+  -DENABLE_QT6=ON -DENABLE_QT5=OFF -DENABLE_GLIB=OFF -DENABLE_BOOST=OFF \
+  -DENABLE_GPGME=OFF -DBUILD_TESTING=OFF
+cmake --build poppler-build --parallel
+cmake --install poppler-build
+export PKG_CONFIG_PATH="$POPPLER_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
+```
+
+**If linking fails with `ld: framework 'AGL' not found`:** Qt 6 still lists the legacy Apple Graphics Library in its macOS link interface, but AGL was removed from recent macOS SDKs (Xcode 16 and newer). Qt 6 renders through Metal/OpenGL and never calls AGL, so an empty stub framework satisfies the linker:
+
+```bash
+# From: <repo-root>/
+mkdir -p agl-stub/AGL.framework
+printf 'void agl_stub(void) {}\n' > agl_stub.c
+clang -dynamiclib -install_name @rpath/AGL.framework/AGL -o agl-stub/AGL.framework/AGL agl_stub.c
+# then add to both the poppler and app configure steps:
+#   -DCMAKE_FRAMEWORK_PATH="$PWD/agl-stub" -DCMAKE_SHARED_LINKER_FLAGS="-F$PWD/agl-stub"
 ```
 
 ---
@@ -126,9 +167,13 @@ Outputs per platform (in `<repo-root>/packages/`):
 
 | Platform | Installer |
 |----------|-----------|
-| **Windows (MinGW)** | `PDFToPlainText-1.0.0-win64.exe` (NSIS, open-source) + `PDFToPlainText-1.0.0-win64.zip` |
+| **Windows (MinGW)** | `PDFToPlainText-1.0.0-win64.exe` (NSIS) + `PDFToPlainText-1.0.0-win64.zip` |
 | **macOS** | `PDFToPlainText-1.0.0-Darwin.dmg` + `.zip` |
 | **Linux** | `PDFToPlainText-1.0.0-Linux.tar.gz` + `PDFToPlainText-1.0.0-Linux.deb` |
+
+> **Windows: the `.exe` installer needs NSIS.** Without `makensis` on `PATH`, CPack falls back to ZIP only. To get the `.exe` too, install NSIS with your package manager: `pacman -S mingw-w64-x86_64-nsis` (MSYS2), `scoop install nsis`, or `winget install NSIS.NSIS`.
+
+> `cpack` leaves a `_CPack_Packages/` staging directory next to the installers. It is build scratch (the uncompressed install tree) and safe to delete.
 
 On **Windows** both the `build/` exe and the installed app are self-contained: CMake runs `windeployqt` automatically at build time and bundles Poppler/MinGW DLLs (`libpoppler-qt6-3.dll`, `libgcc_s_seh-1.dll`, etc.) — no manual `PATH` or DLL copying, whether you run from `build/` or from the installer/ZIP.
 
@@ -151,7 +196,7 @@ No setup is required beyond pushing the repository.
 
    The same CI job creates a **GitHub Release** and attaches all installers — ready to download without building locally.
 
-Workflow dependencies are all open-source and cached automatically: MSYS2 + `pacman` for Qt/Poppler on Windows (MinGW), `apt`/`brew` for Poppler on Linux/macOS, and `aqtinstall`/`install-qt-action` with MinGW arch where applicable.
+Workflow dependencies are cached automatically: MSYS2 + `pacman` for Qt/Poppler on Windows (MinGW), `apt` for Linux, and a from-source Poppler build against `install-qt-action`'s Qt on macOS.
 
 To disable or customize, edit `.github/workflows/ci.yml`.
 
@@ -162,7 +207,7 @@ To disable or customize, edit `.github/workflows/ci.yml`.
 ```
 .
 ├── CMakeLists.txt          # find_package(Qt6, Poppler), windeployqt + CPack
-├── vcpkg.json              # manifest for Poppler[qt6] (MinGW triplet, optional)
+├── vcpkg.json              # manifest for Poppler[qt] (MinGW triplet, optional)
 ├── src/
 │   ├── main.cpp
 │   ├── MainWindow.h/.cpp   # layout, QSettings, queue, progress, status
