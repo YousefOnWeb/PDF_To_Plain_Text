@@ -83,7 +83,11 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          brew install ninja pkgconf gettext
+          # Poppler's own hard dependencies. 'brew install poppler' is NOT used
+          # because that formula hardcodes -DENABLE_QT6=OFF.
+          brew install cairo fontconfig freetype harfbuzz jpeg-turbo libpng \
+                       libtiff little-cms2 nspr nss openjpeg libiconv \
+                       zlib gettext gperf ninja pkgconf
           POPPLER_VERSION=26.04.0
           POPPLER_PREFIX="$RUNNER_TEMP/poppler"
           curl -fsSL "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" -o poppler.tar.xz
@@ -91,11 +95,12 @@ jobs:
           cmake -S "poppler-${POPPLER_VERSION}" -B poppler-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$POPPLER_PREFIX" \
-            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR;/opt/homebrew" \
             -DENABLE_QT6=ON \
             -DENABLE_QT5=OFF \
             -DENABLE_GLIB=OFF \
             -DENABLE_BOOST=OFF \
+            -DENABLE_GPGME=OFF \
             -DENABLE_UNSTABLE_API_ABI_HEADERS=ON \
             -DBUILD_GTK_TESTS=OFF \
             -DBUILD_QT5_TESTS=OFF \
