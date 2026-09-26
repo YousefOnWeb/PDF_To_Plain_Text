@@ -1,6 +1,8 @@
 # PDF To Plain Text
 
-<img src="assets/icon-readme.png" width="180" alt="PDF To Plain Text icon: a PDF document being converted to a text document" align="right">
+<p align="center">
+  <img src="assets/icon-readme.png" width="128" alt="PDF To Plain Text icon: a document being converted into a text document">
+</p>
 
 Lightweight, cross-platform desktop utility that converts PDF documents into raw plain text. Drag-and-drop batch processing, persistent output folder, and asynchronous extraction with a real-time progress bar.
 
