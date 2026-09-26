@@ -87,7 +87,10 @@ if (-not $NoPackage) {
     Write-Host "Packaging ZIP (CPack)..." -ForegroundColor Green
     & cpack -G ZIP --config build/CPackConfig.cmake -B packages
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "Package: $repoRoot\packages\PDFToPlainText-1.0.0-win64.zip" -ForegroundColor Green
+        # Report whatever cpack actually produced rather than a hardcoded name
+        Get-ChildItem "$repoRoot\packages\*.zip" | ForEach-Object {
+            Write-Host "Package: $($_.FullName)" -ForegroundColor Green
+        }
     } else {
         Write-Host "cpack failed - NSIS not installed is OK (ZIP still created if above succeeded)" -ForegroundColor Yellow
     }

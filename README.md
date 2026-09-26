@@ -1,5 +1,7 @@
 # PDF To Plain Text
 
+<img src="assets/icon-readme.png" width="180" alt="PDF To Plain Text icon: a PDF document being converted to a text document" align="right">
+
 Lightweight, cross-platform desktop utility that converts PDF documents into raw plain text. Drag-and-drop batch processing, persistent output folder, and asynchronous extraction with a real-time progress bar.
 
 Built with **C++17 / Qt 6 / Poppler-Qt6 / CMake** using GCC / MinGW-w64 / Clang.
@@ -217,11 +219,20 @@ To disable or customize, edit `.github/workflows/ci.yml`.
 .
 ├── CMakeLists.txt          # find_package(Qt6, Poppler), windeployqt + CPack
 ├── vcpkg.json              # manifest for Poppler[qt] (MinGW triplet, optional)
+├── assets/                 # app icon in every format the platforms want
+│   ├── PDFToPlainText.ico  #   Windows executable/installer (16-256px)
+│   ├── app.icns            #   macOS bundle (16-512px)
+│   ├── app.png             #   window icon at runtime, all platforms
+│   ├── app.qrc             #   compiles app.png into the binary
+│   └── icon-readme.png     #   the image at the top of this file
 ├── src/
 │   ├── main.cpp
 │   ├── MainWindow.h/.cpp   # layout, QSettings, queue, progress, status
 │   ├── DropFrame.h/.cpp    # dashed drop zone, MIME filter, click-to-browse
+│   ├── FileRowWidget.h/.cpp# per-file row: hover remove, failure detail
 │   └── PdfExtractor.h/.cpp # Poppler loop, UTF-8 write, worker signals
+├── cmake/CopyRuntimeDeps.cmake  # recursive runtime DLL copy (Windows)
+├── build.ps1               # one-click Windows build + package
 ├── .github/workflows/ci.yml
 └── README.md
 ```

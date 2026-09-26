@@ -11,6 +11,11 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
+# Needed on Windows for the generated .rc (icon + VERSIONINFO)
+if(WIN32)
+    enable_language(RC)
+endif()
+
 # --- Dependencies -------------------------------------------------------------
 
 # Qt6 is required. Provide Qt6_DIR or CMAKE_PREFIX_PATH if Qt is in a custom location.
@@ -67,19 +72,74 @@ set(SOURCES
     src/PdfExtractor.h
     src/FileRowWidget.cpp
     src/FileRowWidget.h
+    assets/app.qrc
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# Windows: GUI subsystem (no console)
+# --- Application icon ---------------------------------------------------------
+set(APP_ICON_PNG "${CMAKE_CURRENT_SOURCE_DIR}/assets/app.png")
+set(APP_ICON_ICO "${CMAKE_CURRENT_SOURCE_DIR}/assets/PDFToPlainText.ico")
+set(APP_ICON_ICNS "${CMAKE_CURRENT_SOURCE_DIR}/assets/app.icns")
+
+# Windows: GUI subsystem (no console) + .rc carrying the icon and VERSIONINFO.
+#
+# We generate our own .rc rather than using CMake's RC_ICONS: Qt links
+# libQt6EntryPoint.a, which already defines IDI_ICON1 with Qt's default
+# icon. Windows only shows the *first* IDI_ICON1 group in the resource
+# section, so ours has to be linked from an object file (which precede the
+# archive on the link line) to win.
 if(WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
+
+    # numeric FILEVERSION from the same project(VERSION) as the installers
+    string(REPLACE "." ";" _ver "${PROJECT_VERSION}")
+    list(LENGTH _ver _ver_len)
+    set(_fver "${PROJECT_VERSION}")
+    while(_ver_len LESS 4)
+        string(APPEND _fver ".0")
+        math(EXPR _ver_len "${_ver_len}+1")
+    endwhile()
+    string(REPLACE "." "," _fver_csv "${_fver}")
+
+    set(_rc "${CMAKE_CURRENT_BINARY_DIR}/app_resources.rc")
+    # Numeric values instead of VOS_NT_WINDOWS32 / VFT_APP: windres does not
+    # pull in winver.h, so the SDK symbols are undefined at compile time.
+    file(WRITE "${_rc}"
+"IDI_ICON1 ICON \"${APP_ICON_ICO}\"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION ${_fver_csv}
+ PRODUCTVERSION ${_fver_csv}
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ BEGIN
+    BLOCK \"StringFileInfo\"
+    BEGIN
+        BLOCK \"040904b0\"
+        BEGIN
+            VALUE \"FileDescription\", \"PDF To Plain Text\"
+            VALUE \"FileVersion\", \"${PROJECT_VERSION}\"
+            VALUE \"ProductName\", \"PDF To Plain Text\"
+            VALUE \"ProductVersion\", \"${PROJECT_VERSION}\"
+        END
+    END
+    BLOCK \"VarFileInfo\"
+    BEGIN
+        VALUE \"Translation\", 0x409, 1200
+    END
+ END
+")
+    target_sources(${PROJECT_NAME} PRIVATE "${_rc}")
 endif()
 
 # macOS: build a real .app bundle so CPack DragNDrop produces a .dmg
 if(APPLE)
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_ICON_FILE "${APP_ICON_ICNS}"
         MACOSX_BUNDLE_BUNDLE_NAME "PDF To Plain Text"
         MACOSX_BUNDLE_GUI_IDENTIFIER "local.pdf-to-plain-text.app"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
@@ -91,6 +151,12 @@ endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Widgets Qt6::Concurrent)
 
+# Keep the in-app version string in sync with project(VERSION) above, so the
+# About/version dialog can never drift from the packaged installer filenames.
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    PDFTOTEXT_VERSION="${PROJECT_VERSION}"
+)
+
 if(Poppler_FOUND)
     target_link_libraries(${PROJECT_NAME} PRIVATE Poppler::Qt6)
     target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_POPPLER_QT6_CONFIG)
@@ -100,6 +166,10 @@ elseif(PopplerQt6_FOUND)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${PopplerQt6_LIBRARIES})
     target_compile_options(${PROJECT_NAME} PRIVATE ${PopplerQt6_CFLAGS_OTHER})
 endif()
+
+# Let Qt process the target: on Windows this is what promotes the .ico in
+# assets/app.qrc to the application icon (IDI_ICON1) and links its .rc.
+qt_finalize_executable(${PROJECT_NAME})
 
 # --- Install & Deploy ---------------------------------------------------------
 install(TARGETS ${PROJECT_NAME}
@@ -267,8 +337,11 @@ if(WIN32)
     set(CPACK_NSIS_DISPLAY_NAME "PDF To Plain Text")
     set(CPACK_NSIS_PACKAGE_NAME "PDFToPlainText")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/app.ico")
-        set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/src/app.ico")
+    if(EXISTS "${APP_ICON_ICO}")
+        # Installer/uninstaller icon and Start-menu shortcut icon
+        set(CPACK_NSIS_MUI_ICON "${APP_ICON_ICO}")
+        set(CPACK_NSIS_MUI_UNIICON "${APP_ICON_ICO}")
+        set(CPACK_PACKAGE_ICON_MUI "${APP_ICON_ICO}")
     endif()
     set(CPACK_NSIS_INSTALLED_ICON_NAME "bin/${PROJECT_NAME}.exe")
     set(CPACK_NSIS_CREATE_ICONS_EXTRA
@@ -278,6 +351,7 @@ if(WIN32)
 elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop;ZIP")
     set(CPACK_DMG_VOLUME_NAME "PDFToPlainText")
+    set(CPACK_DMG_FORMAT "UDZO")
 else()
     set(CPACK_GENERATOR "TGZ;DEB")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "PDFToPlainText")

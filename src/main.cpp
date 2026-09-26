@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QIcon>
 #include <QStyleFactory>
 #include <QPalette>
 #include "MainWindow.h"
@@ -8,7 +9,12 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationName(QStringLiteral("PDF To Plain Text"));
     QApplication::setOrganizationName(QStringLiteral("PDFToPlainText"));
     QApplication::setOrganizationDomain(QStringLiteral("pdf-to-plain-text.local"));
-    QApplication::setApplicationVersion(QStringLiteral("1.0.0"));
+    QApplication::setApplicationVersion(QStringLiteral(PDFTOTEXT_VERSION));
+
+    // Window/taskbar icon on every platform (compiled in via assets/app.qrc).
+    // Windows and macOS also take the icon from the executable/bundle resource,
+    // so they use the multi-resolution .ico/.icns regardless.
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
 
     // Cohesive dark theme — Fusion + dark palette for WCAG contrast
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
