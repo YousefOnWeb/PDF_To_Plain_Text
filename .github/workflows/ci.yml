@@ -32,6 +32,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # CMakeLists.txt is the single source of truth for the version. Fail fast
+      # on a tag that disagrees with it, instead of publishing installers whose
+      # filenames (driven by project(VERSION)) do not match the release tag.
+      - name: Verify tag matches CMake version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          CMAKE_VER="$(sed -n 's/^project(.*VERSION \([0-9][0-9.]*\).*/\1/p' CMakeLists.txt | head -n1)"
+          echo "tag: $TAG   CMakeLists VERSION: $CMAKE_VER"
+          if [ -z "$CMAKE_VER" ]; then
+            echo "::error::Could not parse project(... VERSION ...) from CMakeLists.txt"
+            exit 1
+          fi
+          if [ "$TAG" != "v${CMAKE_VER}" ]; then
+            echo "::error::Tag '$TAG' does not match project(VERSION $CMAKE_VER). Bump CMakeLists.txt and commit before tagging."
+            exit 1
+          fi
+          echo "Version tag matches CMakeLists.txt"
+
       # --- Windows: MSYS2 MinGW (fully open-source) ---------------------------
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
