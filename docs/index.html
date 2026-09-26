@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF To Plain Text — turn PDFs into text files</title>
+<meta name="description" content="PDF To Plain Text is a free desktop app that converts PDF documents into plain text files. Download for Windows, Mac, or Linux.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" type="image/png" href="assets/icon.png">
+</head>
+<body>
+
+<header class="hero">
+  <img src="assets/icon.png" width="128" height="128" alt="PDF To Plain Text icon: a document being converted into a text document">
+  <h1>PDF To Plain Text</h1>
+  <p class="tagline">Turn PDF documents into plain text files.</p>
+  <p class="intro">Drop in one PDF or many, pick where the text files go, and press Extract Text. Your files stay on your computer — nothing is uploaded anywhere.</p>
+  <p class="version" id="version-line" hidden>Version <span id="version-number"></span></p>
+</header>
+
+<main>
+  <section class="downloads" aria-label="Download">
+    <h2>Get the app</h2>
+    <p class="sub">Free download. The buttons below always get the newest release.</p>
+    <div class="cards">
+      <article class="card">
+        <h3>Windows</h3>
+        <p>Installer (.exe)</p>
+        <a class="button" id="btn-windows" href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest">Download for Windows</a>
+      </article>
+      <article class="card">
+        <h3>Mac</h3>
+        <p>Disk image (.dmg)</p>
+        <a class="button" id="btn-macos" href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest">Download for Mac</a>
+      </article>
+      <article class="card">
+        <h3>Linux</h3>
+        <p>Installer (.deb)</p>
+        <a class="button" id="btn-linux" href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest">Download for Linux</a>
+        <p class="alt"><a id="link-linux-tar" href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest">Prefer a portable .tar.gz?</a></p>
+      </article>
+    </div>
+    <p class="note" id="download-note" hidden></p>
+    <noscript><p class="note">JavaScript is off, so the buttons above open the latest release page where you can pick your file.</p></noscript>
+  </section>
+
+  <section class="shot">
+    <h2>One window, three steps</h2>
+    <figure>
+      <img src="assets/screenshot.png" alt="The PDF To Plain Text window: a drop zone at the top, the file queue in the middle, an output folder field, and an Extract Text button" loading="lazy">
+      <figcaption>The whole app: drop files, choose a folder, press Extract Text.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Drop your PDFs in</strong> — or click the box to browse. Add as many as you like.</li>
+      <li><strong>Choose the output folder.</strong> The app remembers it next time.</li>
+      <li><strong>Press Extract Text.</strong> Each PDF becomes a <code>.txt</code> file with the same name.</li>
+    </ol>
+  </section>
+
+  <section class="features">
+    <h2>What you get</h2>
+    <ul>
+      <li><strong>Many files at once.</strong> Queue a whole folder of study material and convert it in one go.</li>
+      <li><strong>A window that stays responsive.</strong> Conversion runs in the background with a progress bar.</li>
+      <li><strong>Just the text.</strong> Formatting, images, and graphics are stripped out — what remains is plain, searchable text.</li>
+      <li><strong>Your files, your computer.</strong> Everything happens locally. Nothing is sent anywhere.</li>
+    </ul>
+  </section>
+
+  <section class="faq">
+    <h2>Questions</h2>
+    <dl>
+      <div>
+        <dt>Is it free?</dt>
+        <dd>Yes. It is free and MIT-licensed.</dd>
+      </div>
+      <div>
+        <dt>Do I need the internet to use it?</dt>
+        <dd>Only to download it. Converting files works fully offline.</dd>
+      </div>
+      <div>
+        <dt>Where do my text files go?</dt>
+        <dd>Into the folder you choose in the app. If a conversion fails, the app tells you which file failed and why.</dd>
+      </div>
+      <div>
+        <dt>What about scanned PDFs or photos of pages?</dt>
+        <dd>Those contain pictures of text, not text itself, so the result will be empty. The app works on PDFs that have real, selectable text.</dd>
+      </div>
+      <div>
+        <dt>I removed something from the queue by mistake.</dt>
+        <dd>Press Undo in the small banner that appears — you have a few seconds, and nothing on your disk is ever deleted.</dd>
+      </div>
+    </dl>
+  </section>
+</main>
+
+<footer>
+  <p>PDF To Plain Text · Free software under the <a href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/blob/main/LICENSE">MIT license</a>.</p>
+  <p class="dev">Are you a developer? Source code, build instructions, and the issue tracker live on the <a href="https://github.com/YousefOnWeb/PDF_To_Plain_Text">project's GitHub page</a>.</p>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var API = "https://api.github.com/repos/YousefOnWeb/PDF_To_Plain_Text/releases/latest";
+  var FALLBACK = "https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest";
+
+  function pick(assets, tests) {
+    for (var i = 0; i < tests.length; i++) {
+      for (var j = 0; j < assets.length; j++) {
+        if (tests[i].test(assets[j].name)) return assets[j];
+      }
+    }
+    return null;
+  }
+
+  function set(id, asset) {
+    if (!asset) return false;
+    var el = document.getElementById(id);
+    el.href = asset.browser_download_url;
+    return true;
+  }
+
+  function note(msg) {
+    var el = document.getElementById("download-note");
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  fetch(API, { headers: { "Accept": "application/vnd.github+json" } })
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function (rel) {
+      var assets = rel.assets || [];
+      var win = pick(assets, [/win64.*\.exe$/i, /windows.*\.exe$/i, /\.exe$/i, /win64.*\.zip$/i, /windows.*\.zip$/i]);
+      var mac = pick(assets, [/\.dmg$/i, /mac.*\.zip$/i, /darwin.*\.zip$/i]);
+      var lin = pick(assets, [/\.deb$/i, /linux.*\.tar\.gz$/i, /\.tar\.gz$/i]);
+      var linTar = pick(assets, [/linux.*\.tar\.gz$/i, /\.tar\.gz$/i]);
+      var ok = true;
+      ok = set("btn-windows", win) && ok;
+      ok = set("btn-macos", mac) && ok;
+      ok = set("btn-linux", lin) && ok;
+      if (linTar && (!lin || linTar.browser_download_url !== lin.browser_download_url)) {
+        set("link-linux-tar", linTar);
+      }
+      var tag = (rel.tag_name || "").replace(/^v/, "");
+      if (tag) {
+        document.getElementById("version-number").textContent = tag;
+        document.getElementById("version-line").hidden = false;
+      }
+      if (!ok) note("One file is missing from the latest release — its button opens the release page instead.");
+    })
+    .catch(function () {
+      // Buttons keep their static href to /releases/latest. Say so briefly.
+      note("Could not check the newest version just now — the buttons open the latest release page.");
+    });
+})();
+</script>
+
+</body>
+</html>
