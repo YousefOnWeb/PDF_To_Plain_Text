@@ -76,6 +76,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpoppler-qt6-dev pkg-config
 
+      # Qt 6's macOS CMake still lists the legacy AGL framework in its interface
+      # link libraries, but AGL was removed from modern macOS SDKs, so ld fails
+      # with "framework 'AGL' not found". Qt 6 does not actually use AGL (it is on
+      # Metal/OpenGL), so an empty stub framework is enough to satisfy the linker.
+      - name: Create AGL stub framework (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          AGL_DIR="$RUNNER_TEMP/agl-stub"
+          mkdir -p "$AGL_DIR/AGL.framework"
+          printf 'void pdf_to_plain_text_agl_stub(void) {}\n' > "$RUNNER_TEMP/agl_stub.c"
+          clang -arch arm64 -dynamiclib \
+                -install_name @rpath/AGL.framework/AGL \
+                -o "$AGL_DIR/AGL.framework/AGL" "$RUNNER_TEMP/agl_stub.c"
+          echo "AGL_STUB=$AGL_DIR" >> $GITHUB_ENV
+          ls -l "$AGL_DIR/AGL.framework/"
+
       # NOTE: Homebrew's poppler formula hardcodes -DENABLE_QT6=OFF, so it can
       # never provide poppler-qt6. We build poppler from source against the
       # Qt 6 installed by install-qt-action above.
@@ -87,7 +104,7 @@ jobs:
           # because that formula hardcodes -DENABLE_QT6=OFF.
           brew install cairo fontconfig freetype harfbuzz jpeg-turbo libpng \
                        libtiff little-cms2 nspr nss openjpeg libiconv \
-                       zlib gettext gperf ninja pkgconf
+                       zlib gettext gperf ninja pkgconf clang-format
           POPPLER_VERSION=26.04.0
           POPPLER_PREFIX="$RUNNER_TEMP/poppler"
           curl -fsSL "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" -o poppler.tar.xz
@@ -96,6 +113,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$POPPLER_PREFIX" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR;/opt/homebrew" \
+            -DCMAKE_FRAMEWORK_PATH="$AGL_STUB" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-F$AGL_STUB" \
+            -DCMAKE_CXX_FLAGS="-F$AGL_STUB" \
             -DENABLE_QT6=ON \
             -DENABLE_QT5=OFF \
             -DENABLE_GLIB=OFF \
@@ -106,9 +126,7 @@ jobs:
             -DBUILD_QT5_TESTS=OFF \
             -DBUILD_QT6_TESTS=OFF \
             -DBUILD_CPP_TESTS=OFF \
-            -DBUILD_MANUAL_TESTS=OFF \
-            -DBUILD_TESTING=OFF \
-            -DINSTALL_PRIVATE_HEADERS=ON
+            -DBUILD_MANUAL_TESTS=OFF
           cmake --build poppler-build --parallel
           cmake --install poppler-build
           echo "PKG_CONFIG_PATH=$POPPLER_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
@@ -132,6 +150,9 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$POPPLER_PREFIX" \
+            -DCMAKE_FRAMEWORK_PATH="$AGL_STUB" \
+            -DCMAKE_EXE_LINKER_FLAGS="-F$AGL_STUB" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-F$AGL_STUB" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Build (Windows)
@@ -170,7 +191,12 @@ jobs:
               install_name_tool -change "$POPPLER_PREFIX/lib/$base" "@loader_path/$base" "$FRAMEWORKS/$base" 2>/dev/null || true
             fi
           done
+          # Never ship the AGL linker stub
+          rm -rf "$FRAMEWORKS/AGL.framework" "$AGL_STUB"
           otool -L "$BIN" | head -20
+          if otool -L "$BIN" | grep -q "AGL.framework"; then
+            echo "::warning::AGL.framework still referenced by the app binary"
+          fi
         shell: bash
 
       - name: Package (Windows)
