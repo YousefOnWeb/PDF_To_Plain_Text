@@ -73,6 +73,19 @@ if(WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
+# macOS: build a real .app bundle so CPack DragNDrop produces a .dmg
+if(APPLE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "PDF To Plain Text"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "local.pdf-to-plain-text.app"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        INSTALL_RPATH "@executable_path/../Frameworks"
+        BUILD_WITH_INSTALL_RPATH FALSE
+    )
+endif()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Widgets Qt6::Concurrent)
 
 if(Poppler_FOUND)
@@ -213,6 +226,20 @@ if(WIN32)
     if(VCPKG_INSTALLED_DIR)
         install(DIRECTORY "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/" DESTINATION bin
             FILES_MATCHING PATTERN "*.dll")
+    endif()
+endif()
+
+# macOS: bundle Qt frameworks so the .app runs on other machines
+if(APPLE)
+    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt
+        HINTS "${Qt6_DIR}/../../../bin" "$ENV{QT_ROOT_DIR}/bin"
+    )
+    if(MACDEPLOYQT_EXECUTABLE)
+        install(CODE "
+            execute_process(COMMAND \"${MACDEPLOYQT_EXECUTABLE}\" -qm \"\${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app\")
+        ")
+    else()
+        message(STATUS "macdeployqt not found - .app will not bundle Qt frameworks")
     endif()
 endif()
 

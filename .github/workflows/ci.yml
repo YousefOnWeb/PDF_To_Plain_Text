@@ -76,22 +76,39 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpoppler-qt6-dev pkg-config
 
-      - name: Install Poppler (macOS)
+      # NOTE: Homebrew's poppler formula hardcodes -DENABLE_QT6=OFF, so it can
+      # never provide poppler-qt6. We build poppler from source against the
+      # Qt 6 installed by install-qt-action above.
+      - name: Build Poppler with Qt6 (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew update
-          brew install poppler pkg-config
-          # poppler-qt6 may be in separate pkgconfig; ensure brew paths are in PKG_CONFIG_PATH
-          echo "PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig:/opt/homebrew/opt/qt@6/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-          # Verify poppler-qt6 is available
-          pkg-config --modversion poppler-qt6 || echo "poppler-qt6.pc not found, checking poppler.pc"
-          pkg-config --modversion poppler || true
-
-      - name: Setup vcpkg (macOS fallback for poppler-qt6)
-        if: runner.os == 'macOS'
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgJsonGlob: "vcpkg.json"
+          set -euo pipefail
+          brew install ninja pkgconf gettext
+          POPPLER_VERSION=26.04.0
+          POPPLER_PREFIX="$RUNNER_TEMP/poppler"
+          curl -fsSL "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" -o poppler.tar.xz
+          tar xf poppler.tar.xz
+          cmake -S "poppler-${POPPLER_VERSION}" -B poppler-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$POPPLER_PREFIX" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DENABLE_QT6=ON \
+            -DENABLE_QT5=OFF \
+            -DENABLE_GLIB=OFF \
+            -DENABLE_BOOST=OFF \
+            -DENABLE_UNSTABLE_API_ABI_HEADERS=ON \
+            -DBUILD_GTK_TESTS=OFF \
+            -DBUILD_QT5_TESTS=OFF \
+            -DBUILD_QT6_TESTS=OFF \
+            -DBUILD_CPP_TESTS=OFF \
+            -DBUILD_MANUAL_TESTS=OFF \
+            -DBUILD_TESTING=OFF \
+            -DINSTALL_PRIVATE_HEADERS=ON
+          cmake --build poppler-build --parallel
+          cmake --install poppler-build
+          echo "PKG_CONFIG_PATH=$POPPLER_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
+          echo "POPPLER_PREFIX=$POPPLER_PREFIX" >> $GITHUB_ENV
+          echo "poppler-qt6 version: $(pkg-config --modversion poppler-qt6)"
 
       # --- CMake configure / build --------------------------------------------
       - name: Configure (Windows MinGW via MSYS2)
@@ -108,13 +125,9 @@ jobs:
       - name: Configure (macOS)
         if: runner.os == 'macOS'
         run: |
-          if pkg-config --exists poppler-qt6; then
-            echo "Found poppler-qt6 via pkg-config"
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-          else
-            echo "poppler-qt6 not found via pkg-config, using vcpkg fallback"
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=arm64-osx
-          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$POPPLER_PREFIX" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -124,6 +137,36 @@ jobs:
       - name: Build (Linux / macOS)
         if: runner.os != 'Windows'
         run: cmake --build build --parallel
+
+      # macOS: ship poppler dylibs inside the .app and make them self-relative
+      - name: Bundle Poppler dylibs (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          APP="build/PDFToPlainText.app"
+          FRAMEWORKS="$APP/Contents/Frameworks"
+          mkdir -p "$FRAMEWORKS"
+          # Poppler Qt6 stack
+          for lib in libpoppler-qt6 libpoppler; do
+            src=$(ls "$POPPLER_PREFIX/lib"/${lib}*.dylib 2>/dev/null | head -1 || true)
+            if [ -n "$src" ]; then
+              base=$(basename "$src")
+              cp "$src" "$FRAMEWORKS/$base"
+              # Rewrite the dylib's own id and its sibling deps to @loader_path
+              install_name_tool -id "@rpath/$base" "$FRAMEWORKS/$base" 2>/dev/null || true
+            fi
+          done
+          # Point the app binary at the bundled dylibs
+          BIN="$APP/Contents/MacOS/PDFToPlainText"
+          for lib in libpoppler-qt6 libpoppler; do
+            base=$(ls "$FRAMEWORKS"/${lib}*.dylib 2>/dev/null | head -1 | xargs -r basename || true)
+            if [ -n "$base" ]; then
+              install_name_tool -change "$POPPLER_PREFIX/lib/$base" "@rpath/$base" "$BIN" 2>/dev/null || true
+              install_name_tool -change "$POPPLER_PREFIX/lib/$base" "@loader_path/$base" "$FRAMEWORKS/$base" 2>/dev/null || true
+            fi
+          done
+          otool -L "$BIN" | head -20
+        shell: bash
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
