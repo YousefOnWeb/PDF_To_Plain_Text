@@ -262,44 +262,20 @@ if(WIN32)
         )
     endif()
 
-    # Install-time: bundle runtime DLLs for ZIP/NSIS (MSYS2 + vcpkg)
-    # Prefer explicit install(FILES ...) so CPack ZIP is self-contained even without vcpkg
-    foreach(_dll IN ITEMS libpoppler-qt6-3.dll libpoppler-163.dll libpoppler-cpp-3.dll
-                          libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll
-                          liblcms2-2.dll libdouble-conversion.dll
-                          libicuin78.dll libicuuc78.dll libicudt78.dll
-                          libharfbuzz-0.dll libpng16-16.dll libfreetype-6.dll
-                          libb2-1.dll libgraphite2.dll libpcre2-16-0.dll libpcre2-8-0.dll
-                          zlib1.dll libbrotlidec.dll libbrotlicommon.dll libzstd.dll
-                          libwebp-7.dll libjpeg-8.dll libtiff-6.dll
-                          nss3.dll libnspr4.dll libplc4.dll libplds4.dll
-                          nssckbi.dll nssdbm3.dll nssutil3.dll smime3.dll ssl3.dll softokn3.dll freebl3.dll
-                          libmd4c.dll libmd4c-html.dll libsharpyuv-0.dll
-                          libglib-2.0-0.dll libbz2-1.dll libopenjp2-7.dll libdeflate.dll libjbig-0.dll libLerc.dll
-                          libcurl-4.dll libintl-8.dll liblzma-5.dll libiconv-2.dll libunistring-5.dll
-                          libidn2-0.dll libpsl-5.dll libssh2-1.dll libnghttp2-14.dll libnghttp3-9.dll
-                          libngtcp2-16.dll libngtcp2_crypto_ossl-0.dll libcrypto-3-x64.dll libssl-3-x64.dll)
-        if(EXISTS "${CMAKE_PREFIX_PATH}/bin/${_dll}")
-            install(FILES "${CMAKE_PREFIX_PATH}/bin/${_dll}" DESTINATION bin)
-        elseif(EXISTS "C:/tools/msys64/ucrt64/bin/${_dll}")
-            install(FILES "C:/tools/msys64/ucrt64/bin/${_dll}" DESTINATION bin)
-        elseif(EXISTS "C:/tools/msys64/mingw64/bin/${_dll}")
-            install(FILES "C:/tools/msys64/mingw64/bin/${_dll}" DESTINATION bin)
-        endif()
-    endforeach()
-    # Version-agnostic install for ICU/lcms2/nss
-    foreach(_pattern IN ITEMS "libicu*.dll" "liblcms2*.dll" "nss*.dll" "libnspr*.dll" "libplc*.dll" "libplds*.dll" "smime*.dll" "ssl*.dll" "softokn*.dll" "freebl*.dll" "*md4c*.dll" "libglib*.dll" "libbz2*.dll" "libopenjp2*.dll" "libdeflate*.dll" "libjbig*.dll" "libLerc*.dll" "libsharpyuv*.dll" "libcurl*.dll" "libintl*.dll" "liblzma*.dll" "libiconv*.dll" "libidn*.dll" "libpsl*.dll" "libssh*.dll" "libnghttp*.dll" "libngtcp*.dll" "libcrypto*.dll" "libssl*.dll" "libunistring*.dll")
-        file(GLOB _inst_glob "${CMAKE_PREFIX_PATH}/bin/${_pattern}" "C:/tools/msys64/ucrt64/bin/${_pattern}" "C:/tools/msys64/mingw64/bin/${_pattern}")
-        if(_inst_glob)
-            install(FILES ${_inst_glob} DESTINATION bin)
-        endif()
-    endforeach()
-
-    # vcpkg: bundle everything in triplet bin
-    if(VCPKG_INSTALLED_DIR)
-        install(DIRECTORY "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/" DESTINATION bin
-            FILES_MATCHING PATTERN "*.dll")
-    endif()
+    # Install-time: ship the runtime DLLs the POST_BUILD step placed next to the
+    # executable. Copying from the build dir — instead of re-resolving the
+    # closure or checking hardcoded toolchain paths — is what makes the
+    # installed app and CPack packages self-contained on every machine:
+    # the build dir already holds the exact, verified closure (windeployqt's
+    # Qt DLLs plus CopyRuntimeDeps' Poppler/MinGW DLLs) that the exe runs
+    # against. Re-resolving at install time was tried and rejected:
+    # file(GET_RUNTIME_DEPENDENCIES) needs dumpbin/objdump on the just-written
+    # binary and fails intermittently right after windeployqt touches it,
+    # and fatals on "conflicting paths" once Qt DLLs sit beside the exe.
+    # (Single-config layouts: with Ninja/Makefiles the DLLs sit directly in
+    # CMAKE_BINARY_DIR. No-op on Linux/macOS, which produce no .dll files.)
+    install(DIRECTORY "${CMAKE_BINARY_DIR}/" DESTINATION bin
+        FILES_MATCHING PATTERN "*.dll")
 endif()
 
 # macOS: bundle Qt frameworks so the .app runs on other machines
