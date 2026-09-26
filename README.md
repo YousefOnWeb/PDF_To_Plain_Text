@@ -194,7 +194,16 @@ No setup is required beyond pushing the repository.
    git push origin v1.0.0
    ```
 
-   The same CI job creates a **GitHub Release** and attaches all installers — ready to download without building locally.
+   A separate `release` job then waits for all three platform builds to
+   succeed, downloads their artifacts, and publishes a single **GitHub
+   Release** with every installer attached. Your users download from
+   `github.com/YousefOnWeb/PDF_To_Plain_Text/releases` without building
+   anything. If any platform fails, no release is published.
+
+   Later releases: bump the version, commit, then tag again —
+   `git tag v1.0.1 && git push origin v1.0.1`. The version in filenames
+   comes from `project(... VERSION ...)` in `CMakeLists.txt`, so update
+   it there first to keep the two in sync.
 
 Workflow dependencies are cached automatically: MSYS2 + `pacman` for Qt/Poppler on Windows (MinGW), `apt` for Linux, and a from-source Poppler build against `install-qt-action`'s Qt on macOS.
 
