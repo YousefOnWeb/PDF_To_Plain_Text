@@ -257,6 +257,11 @@ jobs:
           hdiutil attach "$DMG" -nobrowse -mountpoint /tmp/pdfmnt
           cp -R /tmp/pdfmnt/*.app /tmp/PDFSmoke.app
           hdiutil detach /tmp/pdfmnt
+          # Strip any quarantine flag so Gatekeeper can never hang the launch
+          # on an invisible prompt. Locally built files normally carry none,
+          # but this keeps the test immune if the artifact ever arrives via
+          # a quarantining path (e.g. testing a downloaded release asset).
+          xattr -rd com.apple.quarantine /tmp/PDFSmoke.app 2>/dev/null || true
           BIN="/tmp/PDFSmoke.app/Contents/MacOS/PDFToPlainText"
           echo "--- linked libraries ---"
           otool -L "$BIN"
@@ -289,6 +294,20 @@ jobs:
           fi
           echo "Smoke test passed: app launched and stayed alive"
         shell: bash
+
+      # On failure, collect the system's own crash reports (.ips) — they
+      # contain the termination reason and the crashed thread's backtrace,
+      # which the app's stdout log alone does not. Runs only on failure;
+      # warns instead of failing when there is nothing to upload (e.g. the
+      # otool check failed before anything launched).
+      - name: Upload macOS crash logs
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-crash-reports
+          path: ~/Library/Logs/DiagnosticReports/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: List packages
         run: ls -lh packages
