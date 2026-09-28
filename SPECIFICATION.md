@@ -1,7 +1,7 @@
 # PDF To Plain Text — Product Specification
 
 > Living document. Written incrementally in numbered steps; each step is committed separately.
-> Progress: Step 5 of 6 done (Parts 1–5 complete, Part 6 scaffolded).
+> Progress: Step 6 of 6 done. All parts complete.
 >
 > Source of truth for released behavior is the code in `src/` plus this document.
 > Build instructions live in `README.md` and are not repeated here.
@@ -689,4 +689,119 @@ filenames, the in-app version string (§4.9), and the tag all derive from it:
 
 ## Part 6 — Quality attributes, testing, limitations, roadmap
 
-*(Step 6 — not written yet.)*
+### 6.1 Performance
+
+- The UI thread never waits on conversion: dispatch is one queued call (§4.4),
+  and progress granularity is per file (§3.5). A 500-page PDF blocks neither
+  scrolling nor selection; per-row removal stays clickable throughout and is
+  safe because the worker holds snapshot copies, never the live model.
+- Peak conversion memory is one page, not one document (`unique_ptr` per page,
+  §3.3 step 3). There is no upper bound on file count or size beyond disk
+  space for the outputs.
+- No performance numbers are claimed: throughput depends on Poppler and the
+  documents. If numbers are ever published, they must name the Poppler
+  version, three sample documents, and the machine — otherwise they are
+  anecdotes, not specifications.
+
+### 6.2 Reliability
+
+- One bad file never aborts a run (§3.3 step 5); every file advances progress
+  and gets its own verdict (§3.7).
+- Queue edits are undoable and disk-safe (§2.5, §3.8). The one destructive
+  filesystem act — truncating an existing same-named `.txt` — is by design
+  (§3.9), not an accident: re-running a queue must converge, not accumulate
+  `file (1).txt` clutter.
+- Shutdown mid-run quits the worker thread with a bounded 2 s wait
+  (`src/MainWindow.cpp:348-354`); a hung extraction therefore delays exit by
+  at most that long.
+
+### 6.3 Accessibility and localization
+
+- Contrast: headline >14:1, muted text >7:1 on the window background (§2.12).
+  All icon-only controls have text tooltips; all status meaning is also
+  carried by text, never color alone.
+- Keyboard: row selection uses the list's standard behavior (arrows move,
+  Shift extends, Ctrl toggles, all handled with the mouse-forwarding in
+  §4.7); every button is a native control reachable by Tab.
+- UI language is English only, hardcoded in source. This is a scope decision
+  (§1.5's single-setting philosophy extended to strings), not an oversight —
+  but it must be revisited deliberately, not drifted into.
+- Text *content* is fully Unicode: extraction and output are UTF-8 end to end
+  (§3.3 step 4), so German umlauts, CJK, and RTL scripts survive conversion
+  whenever the PDF's text layer contains them.
+
+### 6.4 Privacy and security posture
+
+- The app performs no network I/O. Conversion is file-in/file-out on the local
+  disk; the only network event in the product's lifetime is the user
+  downloading the installer. There is no telemetry, no update check, no
+  crash reporting.
+- Supply chain is pinned where it matters: Poppler source tarball by version
+  (26.04.0), Qt at 6.8.2, vcpkg baseline commit; CI verifies the tag↔CMake
+  version match before building (§5.5).
+- Known friction, stated plainly: the macOS build is unsigned, so first launch
+  requires right-click → Open past Gatekeeper; the Windows installer requests
+  elevation (CPack template default, no override variable exists). Neither
+  affects the installed app's behavior.
+
+### 6.5 Testing strategy
+
+There is no unit-test suite — stated so it is never assumed. Verification is
+layered:
+
+1. **Compile gate:** warnings-visible builds on all three OSs (`-Wall`-class
+   output from GCC/Clang/MSVC-style MinGW); the version-guard step fails tag
+   builds in seconds on mismatch (§5.5).
+2. **Packaging smoke tests** (the layer with the best defect-per-line record
+   in this project's history): macOS otool leak check + 10 s offscreen launch
+   of the shipped `.zip` payload; Windows `ntldd` direct-deps gate + 10 s
+   launch of the shipped payload; Linux `ldd` gate + 10 s launch of the
+   tarball. Each tests the artifact users download, with documented
+   substitutions where containers can't run headless (ZIP-for-DMG,
+   ZIP-for-NSIS-exe). macOS crash `.ips` files upload on failure.
+3. **Manual verification habits** (used during development, reproducible by
+   any contributor): `build.ps1 -Clean` end to end; `ntldd -R` / `otool -L` /
+   `ldd` against the product; launching the result with a bare system `PATH`
+   to prove self-containment.
+4. **Spec conformance:** Parts 2–3 of this document are the checklist for any
+   UI-affecting change — the reviewer walks the new behavior against the
+   stated rules before merging.
+
+### 6.6 Known limitations (acknowledged, not queued as bugs)
+
+- Scanned-image PDFs convert to empty files (no OCR, §1.5).
+- The Linux `.deb` declares unversioned Qt system dependencies while the
+  binary is built against Qt 6.8: on distros shipping older Qt it may refuse
+  to run. Bundling Qt on Linux (or versioned deps) is the open packaging
+  question noted in §5.3/§5.5.
+- No mid-run cancellation, no per-file retry button, no output naming options,
+  no drag-reorder of the queue. Each was omitted deliberately (§3.9); each
+  needs a proposal, not a bug report, to enter the roadmap.
+- `cmd.exe` is unsupported on Windows (PowerShell or MSYS2 shells only);
+  pre-release tags like `v0.0.1-rc1` are rejected by the version guard.
+
+### 6.7 Roadmap (candidates, not commitments)
+
+Ordered by value-to-effort as judged today; nothing here is promised:
+
+1. **Cancel button** for in-flight runs (worker loop already iterates per
+   file, so a cooperative flag is a small, safe addition).
+2. **macOS signing + notarization** (paid Apple Developer account required),
+   graduating today's ad-hoc posture (§6.4) to a first-launch without warnings.
+3. **Linux Qt bundling** (resolves §6.6's `.deb` question properly).
+4. **Output naming options** (e.g. page separators, filename patterns) —
+   weighed against the one-setting philosophy; likely rejected or minimal.
+5. **Localization framework** (Qt Linguist + `.ts` files) if a second UI
+   language is ever actually requested.
+
+### 6.8 Maintaining this document
+
+- UI-affecting change → update Part 2 first, then the behavior in Part 3 if
+  semantics moved; keep every `path:line` reference accurate (they rot fast).
+- New dependency, flag, or CI stage → Part 5, in the same commit as the change
+  when the change alters what a reader must do or expect.
+- New defect class found by smoke tests → §6.5's list plus the incident note
+  where the fix lives (Part 5), as was done for the hollow-bundle, SONAME,
+  and brew-closure incidents.
+- Version bumps touch only `CMakeLists.txt` per the Release Commit workflow
+  (§5.6); this document names no version except in Part 1's identity table.
