@@ -385,22 +385,33 @@ jobs:
           echo "Smoke test passed: app launched and stayed alive"
         shell: bash
 
-      # Windows: silently install the exact NSIS .exe users download, then
-      # boot-test the installed app. Runs in plain pwsh (NOT the msys2 shell)
-      # so no toolchain directory can mask a missing DLL — a true
-      # user-machine simulation. The .zip shares the same payload, so testing
-      # the installer covers both artifacts.
-      - name: Install silently (Windows)
+      # Windows: boot-test the exact -win64.zip users download. The NSIS .exe
+      # cannot be installed headless: CPack's NSIS template hardcodes
+      # `RequestExecutionLevel admin`, and a non-elevated CI step cannot
+      # answer the UAC prompt (this first showed up as a silent-install
+      # failure with an empty exit code). The .zip holds the identical
+      # payload and Expand-Archive needs no elevation — the same
+      # test-the-payload-not-the-container call as the macOS DMG->ZIP move.
+      - name: Expand ZIP (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = Get-ChildItem packages\*.exe | Select-Object -First 1
-          Write-Host "Testing $($exe.FullName)"
-          & $exe.FullName /S /D=C:\PDFSmoke
-          if ($LASTEXITCODE -ne 0) { throw "Silent install failed with exit $LASTEXITCODE" }
-          if (-not (Test-Path "C:\PDFSmoke\bin\PDFToPlainText.exe")) { throw "Installed binary missing" }
-          Write-Host "Installed OK"
+          $zip = Get-ChildItem packages\*-win64.zip | Select-Object -First 1
+          Write-Host "Testing $($zip.FullName)"
+          $dest = ($env:RUNNER_TEMP + "\PDFSmoke") -replace '\\','/'
+          if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+          Expand-Archive -Path $zip.FullName -DestinationPath $dest -Force
+          $bin = "$dest/bin/PDFToPlainText.exe"
+          if (-not (Test-Path $bin)) {
+            $bin = Get-ChildItem $dest -Recurse -Filter PDFToPlainText.exe | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $bin -or -not (Test-Path $bin)) { throw "No PDFToPlainText.exe in $zip" }
+          Write-Host "Binary: $bin"
+          # Forward slashes: valid for Windows APIs and safe inside the
+          # msys2 bash steps that consume this variable next.
+          $binFwd = ($bin -replace '\\','/')
+          Add-Content -Path $env:GITHUB_ENV -Value "PDFSMOKE_BIN=$binFwd"
 
       # Static counterpart of the macOS otool check: every direct dependency
       # must resolve. ntldd runs with a scrubbed PATH (System32 + /usr/bin for
@@ -414,12 +425,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          export _BIN="C:/PDFSmoke/bin/PDFToPlainText.exe"
+          export _BIN="$PDFSMOKE_BIN"
           PATH="/usr/bin:/c/Windows/System32:/c/Windows" /mingw64/bin/ntldd "$_BIN" > /tmp/ntldd-direct.log 2>&1
           cat /tmp/ntldd-direct.log
           BAD=$(grep "not found" /tmp/ntldd-direct.log | grep -vE "api-ms-win|ext-ms-" || true)
           if [ -n "$BAD" ]; then
-            echo "::error::Unresolved direct DLL dependencies in the installed app:"
+            echo "::error::Unresolved direct DLL dependencies in the shipped payload:"
             echo "$BAD"
             exit 1
           fi
@@ -428,19 +439,19 @@ jobs:
           grep -c "=>" /tmp/ntldd-full.log | xargs echo "resolved entries:"
           echo "DLL closure OK"
 
-      - name: Smoke-test installed app (Windows)
+      - name: Smoke-test shipped payload (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $env:QT_QPA_PLATFORM = "offscreen"
-          $p = Start-Process "C:\PDFSmoke\bin\PDFToPlainText.exe" -PassThru
+          $p = Start-Process "$env:PDFSMOKE_BIN" -PassThru
           Start-Sleep -Seconds 10
           if ($p.HasExited) {
             throw "App exited within 10s (exit $($p.ExitCode)). A missing DLL or startup crash is likely — see the DLL closure step above."
           }
           Stop-Process -Id $p.Id -Force
-          Write-Host "Smoke test passed: installed app launched and stayed alive"
+          Write-Host "Smoke test passed: shipped payload launched and stayed alive"
 
       # Linux: boot-test the exact .tar.gz users download. Extract, verify
       # ldd shows no missing libraries, then launch headless (offscreen) and
