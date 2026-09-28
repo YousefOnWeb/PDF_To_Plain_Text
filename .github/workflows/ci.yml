@@ -67,6 +67,7 @@ jobs:
             mingw-w64-x86_64-qt6-tools
             mingw-w64-x86_64-poppler-qt6
             mingw-w64-x86_64-nsis
+            mingw-w64-x86_64-ntldd
             mingw-w64-x86_64-pkgconf
 
       # --- Qt / Poppler (Linux / macOS) --------------------------------------
@@ -381,6 +382,104 @@ jobs:
             echo "::error::Loader errors in app log (see above)"
             exit 1
           fi
+          echo "Smoke test passed: app launched and stayed alive"
+        shell: bash
+
+      # Windows: silently install the exact NSIS .exe users download, then
+      # boot-test the installed app. Runs in plain pwsh (NOT the msys2 shell)
+      # so no toolchain directory can mask a missing DLL — a true
+      # user-machine simulation. The .zip shares the same payload, so testing
+      # the installer covers both artifacts.
+      - name: Install silently (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Get-ChildItem packages\*.exe | Select-Object -First 1
+          Write-Host "Testing $($exe.FullName)"
+          & $exe.FullName /S /D=C:\PDFSmoke
+          if ($LASTEXITCODE -ne 0) { throw "Silent install failed with exit $LASTEXITCODE" }
+          if (-not (Test-Path "C:\PDFSmoke\bin\PDFToPlainText.exe")) { throw "Installed binary missing" }
+          Write-Host "Installed OK"
+
+      # Static counterpart of the macOS otool check: every direct dependency
+      # must resolve. ntldd runs with a scrubbed PATH (System32 + /usr/bin for
+      # its own msys runtime only) so /mingw64/bin cannot hide a DLL missing
+      # from the payload. The gate is on direct deps only: the recursive walk
+      # is printed for diagnostics, but deep system chains contain virtual
+      # entries (api-ms-win-*, ext-ms-*, HVSI/attestation shims) that are
+      # "not found" on every healthy machine. The launch step below is the
+      # backstop for anything deeper.
+      - name: Check DLL closure (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export _BIN="C:/PDFSmoke/bin/PDFToPlainText.exe"
+          PATH="/usr/bin:/c/Windows/System32:/c/Windows" /mingw64/bin/ntldd "$_BIN" > /tmp/ntldd-direct.log 2>&1
+          cat /tmp/ntldd-direct.log
+          BAD=$(grep "not found" /tmp/ntldd-direct.log | grep -vE "api-ms-win|ext-ms-" || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::Unresolved direct DLL dependencies in the installed app:"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "--- full recursive walk (diagnostics only) ---"
+          PATH="/usr/bin:/c/Windows/System32:/c/Windows" /mingw64/bin/ntldd -R "$_BIN" > /tmp/ntldd-full.log 2>&1 || true
+          grep -c "=>" /tmp/ntldd-full.log | xargs echo "resolved entries:"
+          echo "DLL closure OK"
+
+      - name: Smoke-test installed app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process "C:\PDFSmoke\bin\PDFToPlainText.exe" -PassThru
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) {
+            throw "App exited within 10s (exit $($p.ExitCode)). A missing DLL or startup crash is likely — see the DLL closure step above."
+          }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "Smoke test passed: installed app launched and stayed alive"
+
+      # Linux: boot-test the exact .tar.gz users download. Extract, verify
+      # ldd shows no missing libraries, then launch headless (offscreen) and
+      # assert it stays up. Runs against the runner's Qt via LD_LIBRARY_PATH
+      # plus the system poppler the build used: this validates binary
+      # integrity and startup, not the .deb dependency closure (the .deb
+      # relies on distro Qt, which is a separate packaging question).
+      - name: Smoke-test tarball (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          TGZ=$(ls packages/*-Linux.tar.gz | head -1)
+          echo "Testing $TGZ"
+          rm -rf /tmp/pdflinux && mkdir -p /tmp/pdflinux
+          tar xzf "$TGZ" -C /tmp/pdflinux
+          BIN=$(find /tmp/pdflinux -name PDFToPlainText -type f | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::error::No PDFToPlainText binary in $TGZ"
+            exit 1
+          fi
+          echo "--- ldd ---"
+          LD_LIBRARY_PATH="$QT_ROOT_DIR/lib" ldd "$BIN"
+          MISSING=$(LD_LIBRARY_PATH="$QT_ROOT_DIR/lib" ldd "$BIN" | grep "not found" || true)
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing shared libraries:"
+            echo "$MISSING"
+            exit 1
+          fi
+          echo "--- launching headless ---"
+          LD_LIBRARY_PATH="$QT_ROOT_DIR/lib" QT_QPA_PLATFORM=offscreen "$BIN" > /tmp/smoke-linux.log 2>&1 &
+          PID=$!
+          sleep 10
+          if ! kill -0 $PID 2>/dev/null; then
+            echo "::error::App exited within 10s. Log:"
+            cat /tmp/smoke-linux.log
+            exit 1
+          fi
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
           echo "Smoke test passed: app launched and stayed alive"
         shell: bash
 
