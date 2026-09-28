@@ -284,8 +284,20 @@ if(APPLE)
         HINTS "${Qt6_DIR}/../../../bin" "$ENV{QT_ROOT_DIR}/bin"
     )
     if(MACDEPLOYQT_EXECUTABLE)
+        message(STATUS "macdeployqt: ${MACDEPLOYQT_EXECUTABLE}")
+        # NOTE: no extra flags beyond -verbose. A bogus flag here (we once
+        # passed a nonexistent -qm) makes macdeployqt exit nonzero, and since
+        # execute_process used to ignore the result, installs silently shipped
+        # an .app with no Qt frameworks. The RESULT_VARIABLE check below turns
+        # any future failure into a loud, immediate error instead.
         install(CODE "
-            execute_process(COMMAND \"${MACDEPLOYQT_EXECUTABLE}\" -qm \"\${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app\")
+            execute_process(
+                COMMAND \"${MACDEPLOYQT_EXECUTABLE}\" \"\${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app\" -verbose=1
+                RESULT_VARIABLE _macdeployqt_rc
+            )
+            if(NOT _macdeployqt_rc EQUAL 0)
+                message(FATAL_ERROR \"macdeployqt failed with exit code \${_macdeployqt_rc} - the .app would ship without Qt frameworks\")
+            endif()
         ")
     else()
         message(STATUS "macdeployqt not found - .app will not bundle Qt frameworks")
