@@ -1,7 +1,7 @@
 # PDF To Plain Text — Product Specification
 
 > Living document. Written incrementally in numbered steps; each step is committed separately.
-> Progress: Step 2 of 6 done (Parts 1–2 complete, Parts 3–6 scaffolded).
+> Progress: Step 3 of 6 done (Parts 1–3 complete, Parts 4–6 scaffolded).
 >
 > Source of truth for released behavior is the code in `src/` plus this document.
 > Build instructions live in `README.md` and are not repeated here.
@@ -271,7 +271,147 @@ never blocks: conversion runs on a worker thread (see Part 4).
 
 ## Part 3 — Functional specification
 
-*(Step 3 — not written yet.)*
+Where Part 2 describes what the user sees, this part defines exact behavior:
+what is accepted, what is produced, in what order, and what happens on every
+failure. Selection visuals and control styling stay in Part 2.
+
+### 3.1 Input acceptance
+
+- A path enters the queue only if it is a local file, ends in `.pdf`
+  (case-insensitive), exists, and is not already queued as the identical path
+  string (`src/DropFrame.cpp:30-32,70-82`, `src/MainWindow.cpp:387-397`).
+- Drops and picker selections share one entry point (`addFiles`), so both obey
+  the same rules; mixed drops queue the PDFs and silently skip the rest.
+- The picker dialog filters to `PDF Files (*.pdf)` and starts in the home
+  folder (`src/MainWindow.cpp:435-439`). Dragged non-local URLs (e.g. from a
+  browser) are skipped (`src/DropFrame.cpp:72`).
+- Queue order is insertion order. There is no sorting and no manual reorder;
+  processing follows queue order (§3.3).
+
+### 3.2 Queue lifecycle
+
+- The queue is an in-memory `QStringList` mirrored 1:1 by list rows carrying
+  the path in `Qt::UserRole` (`src/MainWindow.h:83`, `src/MainWindow.cpp:394-399`).
+- Removals (single `×`, Remove Selected with descending-row deletion so indices
+  stay valid, Clear) update model and view together and refresh the empty
+  placeholder, selection state, and Extract enablement
+  (`src/MainWindow.cpp:561-581`, `src/MainWindow.cpp:543-559`).
+- A removal never touches the disk: no confirmation modal exists by design;
+  the 7-second undo (§2.5) is the safeguard.
+- On **fully successful** conversion the queue is cleared (with undo available,
+  `src/MainWindow.cpp:519-528`). On **partial or total failure the queue is
+  preserved** — failed rows stay visible, marked (§2.4), so the user can fix
+  the cause and press Extract again without re-queuing.
+
+### 3.3 Extraction semantics
+
+One run processes a snapshot taken at button-press time (file list plus output
+directory are copied, `src/MainWindow.cpp:470-474`); later queue edits cannot
+affect a run, and all queue/output controls are disabled for its duration.
+
+Per file, in order (`src/PdfExtractor.cpp:34-87`):
+
+1. **Load** via `Poppler::Document::load`. A null document means the file is
+   encrypted/corrupt/unreadable → failure path (§3.4). A non-null but locked
+   document means password protection → its own failure message.
+   Render antialiasing hints are explicitly disabled: irrelevant to text and
+   wasted work (`src/PdfExtractor.cpp:53-55`).
+2. **Open output** `<outputDir>/<completeBaseName>.txt` for writing, truncating
+   any previous file of the same name **without prompting**. `completeBaseName`
+   strips only the last suffix, so `report.final.pdf` becomes `report.final.txt`
+   (`src/PdfExtractor.cpp:37`). An unopenable output is a per-file failure
+   carrying the OS error string.
+3. **Pages 0..N−1 in order.** Each page is held in a `unique_ptr` (freed
+   immediately after use, bounding memory on huge documents) and its text taken
+   with `page->text(QRectF())` — the call that strips images, vector graphics,
+   and formatting down to raw Unicode (`src/PdfExtractor.cpp:69-75`). Null
+   pages are skipped; empty pages contribute nothing; otherwise the page text
+   is written plus a trailing newline separator if it lacks one, so pages never
+   fuse into one line (`src/PdfExtractor.cpp:76-80`).
+4. **Stream encoding is UTF-8** (`QStringConverter::Utf8`,
+   `src/PdfExtractor.cpp:66`); the file is opened with `QIODevice::Text`, so
+   line endings follow OS convention on write.
+5. Success emits `fileSucceeded(pdfPath, txtPath)`; either way
+   `progressChanged(i+1, total)` fires, then the loop continues with the next
+   file. One bad file never aborts the run.
+
+After the loop, `finished(succeeded, failed)` fires once
+(`src/PdfExtractor.cpp:89`). There is **no cancellation**: no cancel control
+exists, and closing the window mid-run quits the worker thread
+(`src/MainWindow.cpp:348-354`).
+
+### 3.4 Failure taxonomy
+
+Exactly three per-file failure messages exist, all surfaced verbatim in the
+status label, the row tooltip, the copy-to-clipboard payload, and the global
+popover (§2.4, §2.9):
+
+| Condition | Message (`src/PdfExtractor.cpp`) |
+|---|---|
+| `Document::load` returns null | `Failed to open PDF (encrypted or corrupted).` (:42) |
+| Document loads but `isLocked()` | `PDF is password-protected.` (:48) |
+| Output file cannot be opened | `Cannot write output file: <OS error>.` (:59) |
+
+Scanned-image PDFs are **not** failures: they load and convert normally,
+yielding an empty (or near-empty) `.txt`, consistent with the no-OCR non-goal
+(§1.5). A missing output folder is handled before the run: the app creates it,
+warning only if creation fails (`src/MainWindow.cpp:455-461`).
+
+### 3.5 Progress reporting
+
+- Granularity is **per file**, not per page: `progressChanged(completed, total)`
+  fires exactly once per queued file plus the final `finished`
+  (`src/PdfExtractor.h:16-20`).
+- The bar's range is reset to the run's file count at start
+  (`src/MainWindow.cpp:484-487`), so it always reads "`completed / total files
+  (percent)`" truthfully, including runs where files fail (failed files still
+  advance the counter, §3.3 step 5).
+
+### 3.6 Output folder and persistence
+
+- The output folder is the **only** persistent setting, stored under
+  organization `PDFToPlainText`, application `PDFToPlainText`, key `outputDir`
+  (`src/main.cpp:10`, `src/MainWindow.cpp:356-364`).
+- Startup rule: use the saved path iff non-empty **and** still existing;
+  otherwise fall back to `DocumentsLocation`, or the home folder if even that
+  is unavailable (`src/MainWindow.cpp:375-379`). A stale saved path (deleted
+  or unplugged drive) therefore degrades to Documents, never to an error.
+- Changing the folder writes the setting immediately
+  (`src/MainWindow.cpp:367-373`). The display field is read-only (§2.6), so
+  the stored value and the shown value cannot diverge.
+
+### 3.7 Completion outcomes
+
+Reported by `onExtractionFinished` (`src/MainWindow.cpp:514-541`):
+
+- **All succeeded:** green "Converted N file(s) successfully.", queue cleared
+  (undoable), Extract disabled, failure map cleared.
+- **Partial:** yellow "Converted S file(s), F failed. Check output folder:
+  `<dir>`.", queue and failed-row markings preserved for retry; the general
+  status retains this summary.
+- **All failed:** red "Conversion failed for N file(s).", queue preserved.
+- The global warning button appears iff the failure map is non-empty and hides
+  when a new run starts or a full success clears it
+  (`src/MainWindow.cpp:463-464,525,538,657-663`).
+
+### 3.8 Undo data rules
+
+- Each removal stores paths plus original row indices (`UndoState`,
+  `src/MainWindow.cpp:25-31`). Undo re-inserts ascending by index, clamped
+  into range, rebuilding fully wired rows (`src/MainWindow.cpp:589-600`).
+- Undo state is **single-shot and single-level**: any new removal overwrites
+  it, a successful undo clears it, and it never survives an application
+  restart. "Undo successful" shows 4 s, then the status resets
+  (`src/MainWindow.cpp:645-655`).
+
+### 3.9 Deliberate non-behaviors (functional)
+
+- Re-running overwrites same-named `.txt` files silently (§3.3 step 2).
+- No duplicate detection in the *output* folder; no skip-if-exists logic.
+- No mid-run cancellation, pause, or per-file retry button (retry = press
+  Extract again; the queue is already intact).
+- No post-run "open output folder" action and no summary beyond the status
+  label plus popover.
 
 ## Part 4 — Technical architecture
 
