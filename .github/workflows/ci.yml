@@ -196,22 +196,24 @@ jobs:
           FRAMEWORKS="$APP/Contents/Frameworks"
           BIN="$APP/Contents/MacOS/PDFToPlainText"
           mkdir -p "$FRAMEWORKS"
-          # Poppler Qt6 stack from our source build
-          for lib in libpoppler-qt6 libpoppler; do
-            src=$(ls "$POPPLER_PREFIX/lib"/${lib}*.dylib 2>/dev/null | head -1 || true)
-            if [ -n "$src" ]; then
-              base=$(basename "$src")
-              cp "$src" "$FRAMEWORKS/$base"
-              install_name_tool -id "@rpath/$base" "$FRAMEWORKS/$base"
-            fi
+          # Copy the poppler stack WITH symlinks (cp -R preserves them): binaries
+          # reference SONAMEs like libpoppler-qt6.3.dylib, which upstream
+          # provides as symlinks to versioned files
+          # (libpoppler-qt6.3.12.0.dylib). Copying only the real file (e.g.
+          # via ls|head -1) orphans the SONAME and dyld dies with
+          # "Library not loaded". Core pattern libpoppler.[0-9]* excludes the
+          # -cpp frontend (nothing references it; recursion would pull it if
+          # anything did) and the -qt6 wrapper (own pattern).
+          for pat in 'libpoppler-qt6*.dylib' 'libpoppler.[0-9]*.dylib'; do
+            for src in "$POPPLER_PREFIX"/lib/$pat; do
+              [ -e "$src" ] || continue
+              cp -R "$src" "$FRAMEWORKS/"
+            done
           done
-          # Point the app binary at the bundled poppler dylibs
-          for lib in libpoppler-qt6 libpoppler; do
-            f=$(ls "$FRAMEWORKS"/${lib}*.dylib 2>/dev/null | head -1 || true)
-            if [ -n "$f" ]; then
-              base=$(basename "$f")
-              install_name_tool -change "$POPPLER_PREFIX/lib/$base" "@rpath/$base" "$BIN"
-            fi
+          # Normalize ids on real files only (install_name_tool must never
+          # run on a symlink; cp -R preserved them as links above)
+          find "$FRAMEWORKS" -type f -name 'libpoppler*.dylib' | while read -r f; do
+            install_name_tool -id "@rpath/$(basename "$f")" "$f"
           done
           # Recursively bundle every Homebrew / source-prefix dependency
           # (freetype, lcms2, cairo, jpeg, ...). Each file is processed once;
@@ -246,6 +248,26 @@ jobs:
             echo "::error::AGL stub missing from Frameworks"
             exit 1
           fi
+          # Fail fast if any @rpath reference we own cannot be resolved inside
+          # the bundle — the same check dyld performs at launch, but here with
+          # precise names instead of an Abort trap in the smoke test. Qt*.framework
+          # refs are excluded: macdeployqt deploys those later at install time.
+          missing=0
+          check_rpath() {
+            local file="$1" ref rel
+            for ref in $(otool -L "$file" | grep -oE "@rpath/[^ ]+" | grep -vE "Qt[^/]*\.framework" | sort -u || true); do
+              rel=${ref#@rpath/}
+              if [ ! -e "$FRAMEWORKS/$rel" ]; then
+                echo "::error::$file references $ref but $rel is missing from Frameworks"
+                missing=1
+              fi
+            done
+          }
+          check_rpath "$BIN"
+          for f in "$FRAMEWORKS"/*.dylib "$FRAMEWORKS"/AGL.framework/AGL; do
+            [ -e "$f" ] && check_rpath "$f"
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
           echo "--- bundled frameworks ---"
           ls "$FRAMEWORKS"
           echo "--- app linkage ---"
