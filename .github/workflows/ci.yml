@@ -218,9 +218,14 @@ jobs:
           # Recursively bundle every Homebrew / source-prefix dependency
           # (freetype, lcms2, cairo, jpeg, ...). Each file is processed once;
           # `local` keeps the recursion re-entrant under set -euo pipefail.
+          # Two passes per file: absolute $POPPLER_PREFIX//opt/homebrew refs
+          # are copied and rewritten to @rpath; already-@rpath refs (Homebrew
+          # builds some of its own links that way, e.g. libwebp -> libsharpyuv)
+          # need no rewrite, but the target file must exist — resolved by
+          # basename against the known source dirs.
           done_files=""
           bundle_one() {
-            local file="$1" deps dep base
+            local file="$1" deps dep base ref found d
             case " $done_files " in *" $file "*) return 0;; esac
             done_files="$done_files $file"
             deps=$(otool -L "$file" | grep -E "^[[:space:]]+($POPPLER_PREFIX/lib/|/opt/homebrew/)" | awk '{print $1}' || true)
@@ -232,6 +237,22 @@ jobs:
                 bundle_one "$FRAMEWORKS/$base"
               fi
               install_name_tool -change "$dep" "@rpath/$base" "$file"
+            done
+            for ref in $(otool -L "$file" | grep -oE "@rpath/[^ ]+\.dylib" | sort -u || true); do
+              base=${ref#@rpath/}
+              if [ ! -e "$FRAMEWORKS/$base" ]; then
+                found=""
+                for d in "$POPPLER_PREFIX/lib" /opt/homebrew/lib /opt/homebrew/opt/*/lib; do
+                  if [ -e "$d/$base" ]; then found="$d/$base"; break; fi
+                done
+                if [ -z "$found" ]; then
+                  echo "::error::$file references $ref, found nowhere (Frameworks, poppler lib, homebrew)"
+                  exit 1
+                fi
+                cp "$found" "$FRAMEWORKS/$base"
+                install_name_tool -id "@rpath/$base" "$FRAMEWORKS/$base"
+                bundle_one "$FRAMEWORKS/$base"
+              fi
             done
           }
           bundle_one "$BIN"
