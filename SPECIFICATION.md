@@ -1,7 +1,7 @@
 # PDF To Plain Text — Product Specification
 
 > Living document. Written incrementally in numbered steps; each step is committed separately.
-> Progress: Step 4 of 6 done (Parts 1–4 complete, Parts 5–6 scaffolded).
+> Progress: Step 5 of 6 done (Parts 1–5 complete, Part 6 scaffolded).
 >
 > Source of truth for released behavior is the code in `src/` plus this document.
 > Build instructions live in `README.md` and are not repeated here.
@@ -539,7 +539,153 @@ thread-quit connection (:339) plus quit/wait/`deleteLater` in the destructor
 
 ## Part 5 — Build, packaging, distribution, CI/CD
 
-*(Step 5 — not written yet.)*
+### 5.1 Toolchains and prerequisites
+
+One compiler family per OS — GCC / MinGW-w64 / Clang — plus CMake ≥ 3.21,
+Qt 6.2+ (Widgets + Concurrent), and Poppler with Qt6 bindings. How each is
+obtained is the reader's choice; `README.md` lists common routes without
+mandating any. What CI itself uses (`.github/workflows/ci.yml:55-155`) is the
+reference configuration:
+
+| OS | Compiler | Qt 6.8.2 | Poppler-Qt6 | Extras |
+|---|---|---|---|---|
+| Windows (`windows-latest`, MINGW64) | `mingw-w64-x86_64-gcc` | `mingw-w64-x86_64-qt6-base` + `-qt6-tools` via MSYS2 (`ci.yml:56-71`) | `mingw-w64-x86_64-poppler-qt6` | `cmake`, `ninja`, `nsis`, `ntldd`, `pkgconf` from the same repo |
+| Linux (`ubuntu-latest`) | GCC | `jurplel/install-qt-action@v4`, `linux_gcc_64` (`ci.yml:74-82`) | `libpoppler-qt6-dev` via apt (`ci.yml:94-98`) | `pkg-config` |
+| macOS (`macos-latest`, arm64) | AppleClang | `install-qt-action`, `clang_64` (`ci.yml:84-92`) | **Built from source**, poppler 26.04.0 with `-DENABLE_QT6=ON` against that Qt (`ci.yml:120-155`) | brew cairo/fontconfig/freetype/harfbuzz/jpeg-turbo/libpng/libtiff/little-cms2/nspr/nss/openjpeg/libiconv/zlib/gettext/gperf/ninja/pkgconf/clang-format |
+
+Three macOS facts matter and are all documented in the workflow:
+
+- `brew install poppler` can never work: Homebrew's formula hardcodes
+  `-DENABLE_QT6=OFF`, so it ships no `poppler-qt6.pc` (`ci.yml:117-119,
+  123-125`).
+- `nss` (NSS3 ≥ 3.68, fatal if absent) and `clang-format` (generates the font
+  width tables) are genuine build requirements, not optionals.
+- Qt 6 still lists the removed Apple Graphics Library in its macOS link
+  interface, so the workflow builds an empty arm64 `AGL.framework` stub and
+  passes `-F`/`CMAKE_FRAMEWORK_PATH` to both the poppler and app configures;
+  Qt renders via Metal/OpenGL and never calls it (`ci.yml:100-115`).
+
+Windows rule with teeth: MSYS2's `ucrt64` and `mingw64` ABIs are incompatible —
+Qt, Poppler, and the compiler must all come from the same one, or linking fails
+on C++ runtime symbols.
+
+### 5.2 Configuring and building
+
+- Windows, recommended: `powershell -ExecutionPolicy Bypass -File .\build.ps1
+  -Clean` from the repo root. The script auto-detects a Qt/Poppler prefix
+  (`C:\tools\msys64\ucrt64`, `C:\msys64\ucrt64`, `mingw64` variants,
+  `C:\Qt\6.x\mingw_64`, `es.exe` fallback), sets `CMAKE_PREFIX_PATH`, `PATH`
+  (required: `moc.exe` needs Qt's `bin` on `PATH` at build time), and
+  `PKG_CONFIG_PATH`, then configures (`Ninja`, Release), builds, and packages
+  (`build.ps1:18-97`). `-NoPackage` skips CPack; `-Prefix` overrides detection.
+- Windows, manual: the `$env:PATH` / `$env:PKG_CONFIG_PATH` lines plus
+  `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_PREFIX_PATH="<your-prefix>"` then `cmake --build build --parallel`.
+  PowerShell only — never `cmd.exe`.
+- Linux/macOS: plain `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` (+
+  `-DCMAKE_PREFIX_PATH` pointing at a custom Qt or at `$POPPLER_PREFIX` on
+  macOS), then `cmake --build build --parallel`. macOS additionally needs the
+  AGL stub flags shown in `ci.yml:169-177` if the local SDK has no AGL.
+- `vcpkg.json` exists as an optional manifest route (MinGW triplet
+  `x64-mingw-dynamic`). Its poppler feature is named **`qt`**, not `qt6` —
+  the wrong name fails with "does not have required feature".
+
+### 5.3 Self-containment: how each OS bundles its runtime
+
+- **Windows:** `windeployqt` runs as a `POST_BUILD` step, so `build\*.exe`
+  runs with no `PATH` edits; `cmake/CopyRuntimeDeps.cmake`
+  (`GET_RUNTIME_DEPENDENCIES`) copies the Poppler/MinGW closure beside it.
+  **Installs ship the build dir's DLLs verbatim** (`install(DIRECTORY
+  CMAKE_BINARY_DIR ... *.dll)`): this replaced hardcoded per-DLL
+  `install(FILES)` lists, which failed silently on any machine whose toolchain
+  lived outside three hardcoded paths and once shipped an installed app with
+  only the 4 Qt DLLs. The script takes `CONFLICTING_DEPENDENCIES_PREFIX` so an
+  already-present DLL (e.g. from `windeployqt`) is skipped, never fatal.
+- **macOS:** the `.app` carries Qt frameworks (deployed by `macdeployqt` at
+  install time — invoked with no extra flags after a bogus `-qm` flag once
+  made it exit nonzero silently and ship framework-less bundles, now guarded
+  by a `RESULT_VARIABLE` check), plus hand-bundled `libpoppler` stack with
+  **SONAME symlinks preserved** (`cp -R`; copying only versioned files
+  orphans names like `libpoppler-qt6.3.dylib` and dyld aborts), plus recursive
+  Homebrew transitive deps rewritten to `@rpath`, plus the shipped AGL stub.
+  A `check_rpath` assertion fails the build if any owned `@rpath` reference
+  lacks its file — dyld's own check, run early with precise names.
+- **Linux:** no bundling; the `.deb` declares `libqt6widgets6,
+  libpoppler-qt6-3` system dependencies. (Validating that closure is an open
+  packaging question — see §5.5 and Part 6.)
+
+### 5.4 Installer artifacts (CPack)
+
+One command after building, from `build/` (`cpack --config CPackConfig.cmake
+-B ../packages`) or repo root. Per-platform outputs (names from the published
+`v0.0.1` release):
+
+| Platform | Artifacts |
+|---|---|
+| Windows (MinGW) | `PDFToPlainText-<ver>-win64.exe` (NSIS) + `PDFToPlainText-<ver>-win64.zip` |
+| macOS | `PDFToPlainText-<ver>-Darwin.dmg` (with LICENSE agreement on mount) + `PDFToPlainText-<ver>-Darwin.zip` |
+| Linux | `PDFToPlainText-<ver>-Linux.tar.gz` + `pdftoplaintext_<ver>_amd64.deb` (note: CPack `DEB-DEFAULT` lowercases the name) |
+
+Notes: without `makensis` on `PATH`, CPack falls back to ZIP-only (install
+`mingw-w64-x86_64-nsis`, `scoop install nsis`, or `winget install NSIS.NSIS`);
+`packages/_CPack_Packages/` is uncompressed build scratch, deleted before
+upload (shipping it once exhausted the upload action's Node heap — see §5.5).
+
+### 5.5 CI pipeline (`.github/workflows/ci.yml`)
+
+Triggers: pushes to `main`/`master`, `v*` tags, pull requests, manual dispatch
+(`ci.yml:3-9`); three matrix jobs (`windows-mingw`, `linux-gcc`,
+`macos-clang`, `ci.yml:21-30`), `fail-fast: false`.
+
+- **Version guard first** (`ci.yml:38-53`): on tag pushes, the tag must equal
+  `v<project(VERSION)>` or the run fails in seconds instead of after a full
+  three-platform build.
+- Setup, configure, build per §5.1–5.2; macOS bundling per §5.3; `cpack`;
+  staging-tree deletion; then **smoke tests against the exact shipped
+  artifacts** — the layer that has caught every recent packaging defect:
+  - *macOS:* unpack the Darwin `.zip` (not the `.dmg` — its license agreement
+    demands interactive acceptance and `hdiutil attach` aborts headless),
+    strip quarantine, assert zero non-relocatable `otool` references outside
+    `/usr/lib`/`/System`, launch 10 s headless (`QT_QPA_PLATFORM=offscreen`),
+    scan output for loader errors (`ci.yml:335-386`). Crash `.ips` files
+    upload on failure (`ci.yml:393-400`).
+  - *Windows:* expand the `-win64.zip` (the NSIS `.exe` cannot install
+    headless — CPack's template hardcodes `RequestExecutionLevel admin` with
+    no override, and UAC has nothing to click; same payload either way), gate
+    direct DLL dependencies via `ntldd` under a scrubbed `PATH`, then the same
+    10 s offscreen launch (`ci.yml:395-454`). The `ntldd` gate is direct-deps
+    only: the recursive walk lists virtual entries (`api-ms-win-*`,
+    `ext-ms-*`, HVSI/attestation shims) as missing on healthy machines.
+  - *Linux:* extract the `-Linux.tar.gz`, gate `ldd` on missing libraries
+    (against the runner Qt + system poppler), same 10 s launch (`ci.yml:462-495`).
+- **Upload** (`ci.yml:515-530`): only real installer extensions, never
+  directories; `NODE_OPTIONS=--max-old-space-size=8192` plus
+  `compression-level: 0` (installers are already compressed).
+- **Release job** (`ci.yml:532-561`): separate job with `needs: build`, same
+  tag condition — one publisher after all three platforms succeed, with
+  `fail_on_unmatched_files: true`. An in-matrix release step was removed
+  because concurrent publishers race and can ship partial releases.
+
+### 5.6 Release Commit workflow (versioning policy)
+
+`CMakeLists.txt` `project(VERSION)` is the single source of truth; CPack
+filenames, the in-app version string (§4.9), and the tag all derive from it:
+
+1. Edit the version in `CMakeLists.txt`.
+2. Commit (`chore: bump version to X.Y.Z`).
+3. Tag exactly `vX.Y.Z` on that commit.
+4. Push branch and tag. CI's version guard plus the gated release job do the rest;
+   installers land on the GitHub Releases page with zero manual steps.
+
+### 5.7 Distribution channels
+
+- **GitHub Releases** (`github.com/YousefOnWeb/PDF_To_Plain_Text/releases`):
+  every installer, attached automatically per §5.5–5.6.
+- **End-user site** (`docs/`, `https://yousefonweb.github.io/PDF_To_Plain_Text/`):
+  plain static HTML+CSS, no framework; three OS download cards resolve the
+  *latest* release's assets at page-load via the GitHub Releases API (pattern
+  match, never hardcoded filenames — including the lowercase `.deb`), with
+  static `/releases/latest` fallbacks for no-JS/rate-limit cases.
 
 ## Part 6 — Quality attributes, testing, limitations, roadmap
 
