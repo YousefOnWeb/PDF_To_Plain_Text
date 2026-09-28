@@ -242,21 +242,34 @@ jobs:
           du -sh packages 2>/dev/null || true
         shell: bash
 
-      # Boot-test the exact .dmg users download: mount it, verify every dylib
-      # reference inside the bundle is self-contained, then launch the app
-      # headless (QT_QPA_PLATFORM=offscreen — runners have no display) and
-      # assert it stays up. Catches missing Qt platform plugins, unbundled
+      # Boot-test the exact macOS package users download: unpack it, verify
+      # every dylib reference inside the bundle is self-contained, then launch
+      # the app headless (QT_QPA_PLATFORM=offscreen — runners have no display)
+      # and assert it stays up. Catches missing Qt platform plugins, unbundled
       # poppler dylibs, and absolute RUNNER_TEMP/brew paths leaking into the
       # shipped bundle (which would break on any machine but the runner's).
-      - name: Smoke-test DMG (macOS)
+      #
+      # NOTE: we test the Darwin .zip, not the .dmg. CPack embeds LICENSE as
+      # a DMG license agreement (SLA), so `hdiutil attach` demands interactive
+      # agreement and aborts with "attach canceled" on headless CI. The .zip
+      # holds the identical .app with no such gate; the license-on-mount
+      # behavior of the .dmg is a feature for end users, not something to
+      # strip for CI's convenience.
+      - name: Smoke-test macOS package
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          DMG=$(ls packages/*.dmg | head -1)
-          echo "Testing $DMG"
-          hdiutil attach "$DMG" -nobrowse -mountpoint /tmp/pdfmnt
-          cp -R /tmp/pdfmnt/*.app /tmp/PDFSmoke.app
-          hdiutil detach /tmp/pdfmnt
+          ZIP=$(ls packages/*-Darwin.zip | head -1)
+          echo "Testing $ZIP"
+          rm -rf /tmp/pdfunzip /tmp/PDFSmoke.app
+          mkdir -p /tmp/pdfunzip
+          unzip -q "$ZIP" -d /tmp/pdfunzip
+          APP_SRC=$(find /tmp/pdfunzip -maxdepth 3 -name "*.app" | head -1)
+          if [ -z "$APP_SRC" ]; then
+            echo "::error::No .app found inside $ZIP"
+            exit 1
+          fi
+          cp -R "$APP_SRC" /tmp/PDFSmoke.app
           # Strip any quarantine flag so Gatekeeper can never hang the launch
           # on an invisible prompt. Locally built files normally carry none,
           # but this keeps the test immune if the artifact ever arrives via
