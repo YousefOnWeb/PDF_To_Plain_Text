@@ -184,39 +184,72 @@ jobs:
         if: runner.os != 'Windows'
         run: cmake --build build --parallel
 
-      # macOS: ship poppler dylibs inside the .app and make them self-relative
+      # macOS: ship poppler AND its transitive Homebrew dependencies inside the
+      # .app and make them self-relative. Anything left pointing at
+      # $POPPLER_PREFIX or /opt/homebrew works on the runner but breaks on
+      # user machines (the smoke test fails the build on exactly this).
       - name: Bundle Poppler dylibs (macOS)
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
           APP="build/PDFToPlainText.app"
           FRAMEWORKS="$APP/Contents/Frameworks"
+          BIN="$APP/Contents/MacOS/PDFToPlainText"
           mkdir -p "$FRAMEWORKS"
-          # Poppler Qt6 stack
+          # Poppler Qt6 stack from our source build
           for lib in libpoppler-qt6 libpoppler; do
             src=$(ls "$POPPLER_PREFIX/lib"/${lib}*.dylib 2>/dev/null | head -1 || true)
             if [ -n "$src" ]; then
               base=$(basename "$src")
               cp "$src" "$FRAMEWORKS/$base"
-              # Rewrite the dylib's own id and its sibling deps to @loader_path
-              install_name_tool -id "@rpath/$base" "$FRAMEWORKS/$base" 2>/dev/null || true
+              install_name_tool -id "@rpath/$base" "$FRAMEWORKS/$base"
             fi
           done
-          # Point the app binary at the bundled dylibs
-          BIN="$APP/Contents/MacOS/PDFToPlainText"
+          # Point the app binary at the bundled poppler dylibs
           for lib in libpoppler-qt6 libpoppler; do
-            base=$(ls "$FRAMEWORKS"/${lib}*.dylib 2>/dev/null | head -1 | xargs -r basename || true)
-            if [ -n "$base" ]; then
-              install_name_tool -change "$POPPLER_PREFIX/lib/$base" "@rpath/$base" "$BIN" 2>/dev/null || true
-              install_name_tool -change "$POPPLER_PREFIX/lib/$base" "@loader_path/$base" "$FRAMEWORKS/$base" 2>/dev/null || true
+            f=$(ls "$FRAMEWORKS"/${lib}*.dylib 2>/dev/null | head -1 || true)
+            if [ -n "$f" ]; then
+              base=$(basename "$f")
+              install_name_tool -change "$POPPLER_PREFIX/lib/$base" "@rpath/$base" "$BIN"
             fi
           done
-          # Never ship the AGL linker stub
-          rm -rf "$FRAMEWORKS/AGL.framework" "$AGL_STUB"
-          otool -L "$BIN" | head -20
-          if otool -L "$BIN" | grep -q "AGL.framework"; then
-            echo "::warning::AGL.framework still referenced by the app binary"
+          # Recursively bundle every Homebrew / source-prefix dependency
+          # (freetype, lcms2, cairo, jpeg, ...). Each file is processed once;
+          # `local` keeps the recursion re-entrant under set -euo pipefail.
+          done_files=""
+          bundle_one() {
+            local file="$1" deps dep base
+            case " $done_files " in *" $file "*) return 0;; esac
+            done_files="$done_files $file"
+            deps=$(otool -L "$file" | grep -E "^[[:space:]]+($POPPLER_PREFIX/lib/|/opt/homebrew/)" | awk '{print $1}' || true)
+            for dep in $deps; do
+              base=$(basename "$dep")
+              if [ ! -e "$FRAMEWORKS/$base" ]; then
+                cp "$dep" "$FRAMEWORKS/$base"
+                install_name_tool -id "@rpath/$base" "$FRAMEWORKS/$base"
+                bundle_one "$FRAMEWORKS/$base"
+              fi
+              install_name_tool -change "$dep" "@rpath/$base" "$file"
+            done
+          }
+          bundle_one "$BIN"
+          for f in "$FRAMEWORKS"/*.dylib; do bundle_one "$f"; done
+          # Ship the (empty) AGL stub: Qt 6 still links -framework AGL but
+          # modern SDKs removed it. Nothing calls it (Qt renders via
+          # Metal/OpenGL); dyld just needs the file to exist for the @rpath
+          # reference both our binary and libpoppler-qt6 carry. Deleting it
+          # would trade a link-time workaround for a launch-time crash.
+          cp -R "$AGL_STUB/AGL.framework" "$FRAMEWORKS/AGL.framework"
+          install_name_tool -id "@rpath/AGL.framework/AGL" "$FRAMEWORKS/AGL.framework/AGL"
+          rm -rf "$AGL_STUB"
+          if [ ! -e "$FRAMEWORKS/AGL.framework/AGL" ]; then
+            echo "::error::AGL stub missing from Frameworks"
+            exit 1
           fi
+          echo "--- bundled frameworks ---"
+          ls "$FRAMEWORKS"
+          echo "--- app linkage ---"
+          otool -L "$BIN"
         shell: bash
 
       - name: Package (Windows)
