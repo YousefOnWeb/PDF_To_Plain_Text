@@ -1,7 +1,7 @@
 # PDF To Plain Text — Product Specification
 
 > Living document. Written incrementally in numbered steps; each step is committed separately.
-> Progress: Step 3 of 6 done (Parts 1–3 complete, Parts 4–6 scaffolded).
+> Progress: Step 4 of 6 done (Parts 1–4 complete, Parts 5–6 scaffolded).
 >
 > Source of truth for released behavior is the code in `src/` plus this document.
 > Build instructions live in `README.md` and are not repeated here.
@@ -415,7 +415,127 @@ Reported by `onExtractionFinished` (`src/MainWindow.cpp:514-541`):
 
 ## Part 4 — Technical architecture
 
-*(Step 4 — not written yet.)*
+### 4.1 Module map
+
+Five units, no other sources (`CMakeLists.txt:65-76`):
+
+| Unit | Files | Role |
+|---|---|---|
+| Bootstrap | `src/main.cpp` | App metadata, icon, theme, event loop. No business logic. |
+| Orchestrator + UI | `src/MainWindow.h/.cpp` | Builds every widget, owns the queue model, owns the worker thread, translates worker signals into UI state. Contains zero extraction logic. |
+| Drop zone | `src/DropFrame.h/.cpp` | `QFrame` subclass: drag filtering/hover feedback, click-to-browse. Emits paths; never touches the queue. |
+| Worker | `src/PdfExtractor.h/.cpp` | Stateless `QObject` living on the worker thread: the §3.3 pipeline. Never touches widgets. |
+| Queue row | `src/FileRowWidget.h/.cpp` | Per-file row widget: label, hover-remove, failure icon, selection forwarding. Knows one path (`src/FileRowWidget.h:25`). |
+
+Dependency direction is strict: rows and the drop zone emit upward to
+`MainWindow`; the worker is invoked by `MainWindow` and reports back by
+signal. Nothing reaches sideways or downward into another unit's internals.
+
+### 4.2 Bootstrap (`src/main.cpp`)
+
+Order is load-bearing: metadata first (`setApplicationName`,
+`setOrganizationName`, `setOrganizationDomain`, `setApplicationVersion`,
+:9-12 — the organization/app names are what `QSettings` keys off, §3.6),
+then the window icon from the compiled-in resource
+(`:/icons/app.png`, :17; see §4.9), then the Fusion style plus the full dark
+`QPalette` (:20-34), then `MainWindow::show()` and `exec()` (:36-38).
+
+### 4.3 MainWindow as orchestrator
+
+`MainWindow` constructs the entire widget tree in its constructor
+(`src/MainWindow.cpp:33-346`), wires every connection (:328-345), starts the
+worker thread, loads settings, and initializes placeholder/selection state
+(:317-326). Thereafter it only reacts: UI events update the model and enable
+states; worker signals update progress, rows, and status. The `destroyed` →
+thread-quit connection (:339) plus quit/wait/`deleteLater` in the destructor
+(:348-354) define the only shutdown path.
+
+### 4.4 Threading model
+
+- One dedicated `QThread` for the application's lifetime; the single
+  `PdfExtractor` instance is moved onto it at startup
+  (`src/MainWindow.cpp:317-321`).
+- A run is dispatched with `QMetaObject::invokeMethod` + `Qt::QueuedConnection`
+  carrying a lambda that captures **copies** of the file list and output dir
+  (`src/MainWindow.cpp:472-474`). The worker therefore needs no locks and no
+  access to the window; the snapshot rule (§3.3) falls out of the capture.
+- All worker→GUI signals (`progressChanged`, `fileSucceeded`, `fileFailed`,
+  `finished`, `src/PdfExtractor.h:16-20`) cross threads via automatic queued
+  connections. Affinity rule, enforced by construction: the worker never names
+  a widget, and the GUI thread never blocks on the worker — the window stays
+  responsive by design, not by tuning.
+- `QtConcurrent` is a linked dependency (`CMakeLists.txt:152`) but the
+  dispatch mechanism above is what the code actually uses.
+
+### 4.5 Signal/slot contracts
+
+| Signal | Emitter | Receiver / effect |
+|---|---|---|
+| `filesDropped(QStringList)` | `DropFrame` (:76) | `MainWindow::onDropFiles` → `addFiles` |
+| `browseRequested()` | `DropFrame` (:86) | `MainWindow::onBrowseClicked` → picker |
+| `removeRequested(FileRowWidget*)` | `FileRowWidget` (:54) | Row lookup by widget identity → single remove + undo |
+| `progressChanged(int, int)` | worker, per file | Progress bar range/value |
+| `fileSucceeded(pdf, txt)` | worker | Currently a no-op hook (:495-498); row needs no change on success |
+| `fileFailed(pdf, error)` | worker | Failure map insert, row marked failed, status text, global button refresh |
+| `finished(succeeded, failed)` | worker, once | The three completion outcomes (§3.7) |
+| `itemSelectionChanged` | `QListWidget` | `onSelectionChanged` → Remove-Selected enablement |
+
+### 4.6 DropFrame event mechanics (`src/DropFrame.cpp`)
+
+- `dragEnterEvent` accepts **only** when at least one URL is a local `.pdf`;
+  anything else is ignored, so the OS shows the correct cursor (:34-57).
+- Accepting sets a dynamic `dragHover` property and repolishes the style to
+  swap the stylesheet branch (:47-53); `dropEvent` clears it the same way
+  (:63-68). `paintEvent` re-runs the style primitive so the rounded dashed
+  border paints correctly (:91-98).
+
+### 4.7 FileRowWidget mechanics (`src/FileRowWidget.cpp`)
+
+- The text label is deliberately mouse-transparent (`NoTextInteraction` +
+  `WA_TransparentForMouseEvents`, :25-26) so clicks anywhere in the row reach
+  `mousePressEvent`, which forwards selection to the hosting `QListWidgetItem`
+  with Ctrl-toggle / Shift-range / plain-select semantics, excepting clicks
+  that land on either icon button (:104-143).
+- The `×` button shows on hover only (`enterEvent`/`leaveEvent`, :76-84);
+  the `⚠` button shows if and only if the row is failed (`setFailed`, :86-102),
+  which also swaps the row's text color and background tint.
+- Clicking `⚠` copies the stored error string to the system clipboard, briefly
+  retitles its own tooltip, and flashes the main window's `CopyToast` (found by
+  object name, 2 s auto-hide, :55-69).
+
+### 4.8 External dependencies and discovery
+
+- **Qt 6.2+**, components Widgets + Concurrent, found via `find_package`
+  (`CMakeLists.txt:24`); `CMAKE_AUTOMOC` is on (:10), and Windows configure
+  notes document the `moc.exe`-on-`PATH` requirement (:26-43).
+- **Poppler-Qt6** via two paths: a `Poppler` config package with the `Qt6`
+  component first (vcpkg-style), else `pkg-config poppler-qt6`
+  (`CMakeLists.txt:46-52`), with a warning naming every supported install
+  route when neither is found (:54-62). The source picks its header with
+  `__has_include`, preferring `<poppler-qt6.h>`
+  (`src/PdfExtractor.cpp:10-20`).
+- Language standard C++17 (`CMakeLists.txt:7-8`); memory discipline is
+  `unique_ptr` per document/page, so peak memory is one page, not one document
+  (§3.3 step 3).
+
+### 4.9 Icon, version, and resource wiring
+
+- `assets/app.qrc` compiles `app.png` into the binary; the runtime window icon
+  comes from `:/icons/app.png` on every OS (`src/main.cpp:17`).
+- **Windows:** a generated `.rc` supplies both the exe icon and `VERSIONINFO`
+  from the same `project(VERSION)` as the installers (`CMakeLists.txt:92-136`).
+  It is hand-written rather than `RC_ICONS` because Qt links
+  `libQt6EntryPoint.a`, which already defines `IDI_ICON1` — Windows shows only
+  the first group, so ours must arrive via a linked object that precedes the
+  archive (:87-91). `windres` gets numeric constants instead of SDK symbols,
+  which it cannot resolve (:106-107).
+- **macOS:** a real `.app` bundle carrying `app.icns`, bundle name, identifier,
+  and version fields, with `@executable_path/../Frameworks` rpath
+  (`CMakeLists.txt:139-150`).
+- **Version single-sourcing:** `PDFTOTEXT_VERSION` is injected as a compile
+  definition from `project(VERSION)` (`CMakeLists.txt:156-158`) and read by
+  `setApplicationVersion` (`src/main.cpp:12`), so the in-app version string
+  cannot drift from installer filenames (enforced in CI per Part 5).
 
 ## Part 5 — Build, packaging, distribution, CI/CD
 
