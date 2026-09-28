@@ -242,6 +242,54 @@ jobs:
           du -sh packages 2>/dev/null || true
         shell: bash
 
+      # Boot-test the exact .dmg users download: mount it, verify every dylib
+      # reference inside the bundle is self-contained, then launch the app
+      # headless (QT_QPA_PLATFORM=offscreen — runners have no display) and
+      # assert it stays up. Catches missing Qt platform plugins, unbundled
+      # poppler dylibs, and absolute RUNNER_TEMP/brew paths leaking into the
+      # shipped bundle (which would break on any machine but the runner's).
+      - name: Smoke-test DMG (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          DMG=$(ls packages/*.dmg | head -1)
+          echo "Testing $DMG"
+          hdiutil attach "$DMG" -nobrowse -mountpoint /tmp/pdfmnt
+          cp -R /tmp/pdfmnt/*.app /tmp/PDFSmoke.app
+          hdiutil detach /tmp/pdfmnt
+          BIN="/tmp/PDFSmoke.app/Contents/MacOS/PDFToPlainText"
+          echo "--- linked libraries ---"
+          otool -L "$BIN"
+          echo "--- checking for non-relocatable references ---"
+          # Every non-system reference must be @rpath/@loader_path/@executable_path.
+          # Absolute paths (runner temp dir, /opt/homebrew, removed AGL stub,
+          # ...) work on the runner but break on user machines.
+          LEAKS=$(otool -L "$BIN" /tmp/PDFSmoke.app/Contents/Frameworks/*.dylib 2>/dev/null | grep -E "^[[:space:]]+/" | grep -vE "^[[:space:]]+/(usr/lib/|System/)" || true)
+          if [ -n "$LEAKS" ]; then
+            echo "::error::Non-relocatable dylib references in the shipped bundle:"
+            echo "$LEAKS"
+            exit 1
+          fi
+          echo "--- launching headless ---"
+          QT_QPA_PLATFORM=offscreen "$BIN" > /tmp/smoke.log 2>&1 &
+          PID=$!
+          sleep 10
+          if ! kill -0 $PID 2>/dev/null; then
+            echo "::error::App exited within 10s. Log:"
+            cat /tmp/smoke.log
+            exit 1
+          fi
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          echo "--- app log ---"
+          cat /tmp/smoke.log
+          if grep -Ei "library not loaded|could not (find or load|load the Qt platform)|not found" /tmp/smoke.log; then
+            echo "::error::Loader errors in app log (see above)"
+            exit 1
+          fi
+          echo "Smoke test passed: app launched and stayed alive"
+        shell: bash
+
       - name: List packages
         run: ls -lh packages
         shell: bash
