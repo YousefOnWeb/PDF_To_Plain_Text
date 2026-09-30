@@ -172,7 +172,7 @@ Outputs per platform (in `<repo-root>/packages/`):
 | Platform | Installer |
 |----------|-----------|
 | **Windows (MinGW)** | `PDFToPlainText-1.0.0-win64.exe` (NSIS) + `PDFToPlainText-1.0.0-win64.zip` |
-| **macOS** | `PDFToPlainText-1.0.0-Darwin.dmg` + `.zip` |
+| **macOS** (11 Big Sur or later — Qt 6 cannot run on older releases) | `PDFToPlainText-1.0.0-Darwin.dmg` + `.zip` |
 | **Linux** | `PDFToPlainText-1.0.0-Linux.tar.gz` + `PDFToPlainText-1.0.0-Linux.deb` |
 
 > **Windows: the `.exe` installer needs NSIS.** Without `makensis` on `PATH`, CPack falls back to ZIP only. To get the `.exe` too, install NSIS with your package manager: `pacman -S mingw-w64-x86_64-nsis` (MSYS2), `scoop install nsis`, or `winget install NSIS.NSIS`.
