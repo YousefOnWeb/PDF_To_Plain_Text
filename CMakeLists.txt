@@ -249,9 +249,9 @@ if(UNIX AND NOT APPLE)
         endif()
         execute_process(
             COMMAND \"\${CMAKE_COMMAND}\"
-                -DEXE=\"\${_bundle_exe}\"
-                -DLIBDIR=\"\${_bundle_lib}\"
-                -DSEARCH_LIST_FILE=\"${CMAKE_BINARY_DIR}/linux_search_dirs.txt\"
+                -DEXE=${_bundle_exe}
+                -DLIBDIR=${_bundle_lib}
+                -DSEARCH_LIST_FILE=${CMAKE_BINARY_DIR}/linux_search_dirs.txt
                 -P \"${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake\"
             RESULT_VARIABLE _bundle_rc
         )
@@ -455,3 +455,4 @@ set(CPACK_SOURCE_GENERATOR "TGZ;ZIP")
 set(CPACK_SOURCE_IGNORE_FILES "/build/;/out/;/.git/;/.github/;/.vs/;CMakeCache")
 
 include(CPack)
+
