@@ -2,6 +2,14 @@
 # Usage (install time, via install(CODE)):
 #   cmake -DEXE=<installed binary> -DLIBDIR=<install lib/> -DSEARCH_LIBDIRS="a;b" -P BundleLinuxDeps.cmake
 #
+# NOTE ON STYLE: this file runs via `cmake -P`, which sets no policies
+# (there is no project() call in script mode), so cmake_minimum_required
+# below is load-bearing, not decorative: without it, IN_LIST is a syntax
+# error (CMP0057) and empty list elements warn (CMP0007). Likewise, regexes
+# use bracket classes like [.] instead of backslash escapes: backslash
+# handling differs between layers here and has caused real bugs before.
+cmake_minimum_required(VERSION 3.21)
+#
 # Resolves `ldd` recursively starting from EXE. Copies everything EXCEPT the
 # system set that stays on the target machine: the C runtime, libstdc++/
 # libgcc_s (forward compatible — newer systems satisfy older needs; bundling
@@ -42,7 +50,7 @@ while(_queue)
                 # Resolve a missing SONAME against versioned files, e.g.
                 # libpoppler-qt6.so.3 against libpoppler-qt6.so.3.0.0 when the
                 # symlink itself is absent from the search dir.
-                if(NOT _path AND _name MATCHES "^(.*\.so\.[0-9]+)$")
+                if(NOT _path AND _name MATCHES "^(.*[.]so[.][0-9]+)$")
                     file(GLOB _candidates "${_d}/${CMAKE_MATCH_1}.*")
                     list(SORT _candidates)
                     if(_candidates)
@@ -61,9 +69,10 @@ while(_queue)
             continue()
         endif()
         # System set: stays on the target machine, never bundled.
-        # (Single backslashes: this file is read literally, so \\. would mean
-        # "a literal backslash followed by any char" and match nothing.)
-        if(_name MATCHES "^(ld-linux|libc\.so|libm\.so|libdl\.so|libpthread\.so|librt\.so|libresolv\.so|libcrypt\.so|libutil\.so|libnss_(files|dns|compat|hesiod)|libX|libxcb|libxkb|libGL|libEGL|libGLES|libOpenGL|libdbus|libstdc\+\+\.so|libgcc_s\.so)")
+        # (Bracket classes like [.] are used instead of backslash escapes:
+        # backslash handling differs between layers here and has caused real
+        # bugs before. See the header note on cmake_minimum_required.)
+        if(_name MATCHES "^(ld-linux|libc[.]so|libm[.]so|libdl[.]so|libpthread[.]so|librt[.]so|libresolv[.]so|libcrypt[.]so|libutil[.]so|libnss_(files|dns|compat|hesiod)|libX|libxcb|libxkb|libGL|libEGL|libGLES|libOpenGL|libdbus|libstdc[+][+]so|libgcc_s[.]so)")
             continue()
         endif()
         if(_name IN_LIST _seen)
