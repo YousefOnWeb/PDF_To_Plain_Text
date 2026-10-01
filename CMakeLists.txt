@@ -244,10 +244,10 @@ if(UNIX AND NOT APPLE)
         endif()
         execute_process(
             COMMAND \"\${CMAKE_COMMAND}\"
-                -DEXE=\${_bundle_exe}
-                -DLIBDIR=\${_bundle_lib}
-                -DSEARCH_LIBDIRS=\"${_LINUX_SEARCH}\"
-                -P \"${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake\"
+                "-DEXE=\${_bundle_exe}"
+                "-DLIBDIR=\${_bundle_lib}"
+                "-DSEARCH_LIBDIRS=${_LINUX_SEARCH}"
+                "-P" "${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake"
             RESULT_VARIABLE _bundle_rc
         )
         if(NOT _bundle_rc EQUAL 0)
@@ -333,9 +333,12 @@ if(WIN32)
             COMMAND_EXPAND_LISTS
             COMMENT "Copying TARGET_RUNTIME_DLLS if any"
         )
-        # Ultimate fallback: GET_RUNTIME_DEPENDENCIES recursively finds nss/nspr etc. without hardcoding versions
+        # Ultimate fallback: GET_RUNTIME_DEPENDENCIES recursively finds nss/nspr etc. without hardcoding versions.
+        # NOTE: every -D argument is fully quoted: embedded quotes do NOT group
+        # in CMake language, so -DSEARCH_DIRS="a;b" would split on the semicolon
+        # and arrive as a single quoted entry plus swallowed positionals.
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -D TARGET_FILE=$<TARGET_FILE:${PROJECT_NAME}> -D DEST_DIR=$<TARGET_FILE_DIR:${PROJECT_NAME}> -D SEARCH_DIRS="${CMAKE_PREFIX_PATH}/bin;C:/tools/msys64/ucrt64/bin;C:/tools/msys64/mingw64/bin" -P "${CMAKE_SOURCE_DIR}/cmake/CopyRuntimeDeps.cmake"
+            COMMAND ${CMAKE_COMMAND} "-D" "TARGET_FILE=$<TARGET_FILE:${PROJECT_NAME}>" "-D" "DEST_DIR=$<TARGET_FILE_DIR:${PROJECT_NAME}>" "-D" "SEARCH_DIRS=${CMAKE_PREFIX_PATH}/bin;C:/tools/msys64/ucrt64/bin;C:/tools/msys64/mingw64/bin" "-P" "${CMAKE_SOURCE_DIR}/cmake/CopyRuntimeDeps.cmake"
             COMMAND_EXPAND_LISTS
             COMMENT "Copying transitive runtime DLLs (GET_RUNTIME_DEPENDENCIES)"
         )
