@@ -22,7 +22,7 @@ jobs:
           - os: windows-latest
             config: windows-mingw
             preset: windows
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             config: linux-gcc
             preset: linux
           - os: macos-latest
@@ -96,11 +96,42 @@ jobs:
           arch: clang_64
           cache: true
 
-      - name: Install Poppler (Linux)
+      # Linux poppler is built from source, not apt: Ubuntu 22.04 (our build
+      # distro, chosen so glibc 2.35 is the floor and the packages run on
+      # 22.04 and everything newer) ships no Qt6 poppler packaging at all —
+      # libpoppler-qt6-* starts at 24.04. Same flags as the macOS build.
+      - name: Build Poppler with Qt6 (Linux)
         if: runner.os == 'Linux'
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libpoppler-qt6-dev pkg-config
+          sudo apt-get install -y ninja-build pkg-config gettext gperf \
+            libfreetype-dev libfontconfig-dev libjpeg-dev libpng-dev \
+            libtiff-dev liblcms2-dev libnss3-dev libopenjpeg-dev \
+            zlib1g-dev libcurl4-openssl-dev liblzma-dev
+          POPPLER_VERSION=26.04.0
+          POPPLER_PREFIX="$RUNNER_TEMP/poppler"
+          curl -fsSL "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" -o poppler.tar.xz
+          tar xf poppler.tar.xz
+          cmake -S "poppler-${POPPLER_VERSION}" -B poppler-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$POPPLER_PREFIX" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DENABLE_QT6=ON \
+            -DENABLE_QT5=OFF \
+            -DENABLE_GLIB=OFF \
+            -DENABLE_BOOST=OFF \
+            -DENABLE_GPGME=OFF \
+            -DBUILD_GTK_TESTS=OFF \
+            -DBUILD_QT5_TESTS=OFF \
+            -DBUILD_QT6_TESTS=OFF \
+            -DBUILD_CPP_TESTS=OFF \
+            -DBUILD_MANUAL_TESTS=OFF
+          cmake --build poppler-build --parallel
+          cmake --install poppler-build
+          echo "PKG_CONFIG_PATH=$POPPLER_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
+          echo "POPPLER_PREFIX=$POPPLER_PREFIX" >> $GITHUB_ENV
+          echo "poppler-qt6 version: $(pkg-config --modversion poppler-qt6)"
 
       # Qt 6's macOS CMake still lists the legacy AGL framework in its interface
       # link libraries, but AGL was removed from modern macOS SDKs, so ld fails
@@ -175,7 +206,8 @@ jobs:
       - name: Configure (Linux)
         if: runner.os == 'Linux'
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$POPPLER_PREFIX"
 
       - name: Configure (macOS)
         if: runner.os == 'macOS'
