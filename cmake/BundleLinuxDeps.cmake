@@ -18,6 +18,15 @@ set(_seen "")
 while(_queue)
     list(POP_FRONT _queue _f)
     execute_process(COMMAND ldd "${_f}" OUTPUT_VARIABLE _out RESULT_VARIABLE _rc)
+    # Loud by design: an ldd failure or an empty/unparseable listing must abort
+    # here. The alternative observed in the wild is a silently empty lib/
+    # directory and a package that fails only later at launch.
+    if(NOT _rc EQUAL 0)
+        message(FATAL_ERROR "BundleLinuxDeps: ldd failed on ${_f} (exit ${_rc})")
+    endif()
+    string(REPLACE "\n" ";" _lines "${_out}")
+    list(LENGTH _lines _n)
+    message(STATUS "BundleLinuxDeps: ldd reports ${_n} lines for ${_f}")
     string(REPLACE "\n" ";" _lines "${_out}")
     foreach(_line IN LISTS _lines)
         # Forms: "  libfoo.so.1 => /path/libfoo.so.1 (0x...)" or "... => not found".
@@ -41,7 +50,9 @@ while(_queue)
             continue()
         endif()
         # System set: stays on the target machine, never bundled.
-        if(_name MATCHES "^(ld-linux|libc\\.so|libm\\.so|libdl\\.so|libpthread\\.so|librt\\.so|libresolv\\.so|libcrypt\\.so|libutil\\.so|libnss_(files|dns|compat|hesiod)|libX|libxcb|libxkb|libGL|libEGL|libGLES|libOpenGL|libdbus|libstdc\\+\\+\\.so|libgcc_s\\.so)")
+        # (Single backslashes: this file is read literally, so \\. would mean
+        # "a literal backslash followed by any char" and match nothing.)
+        if(_name MATCHES "^(ld-linux|libc\.so|libm\.so|libdl\.so|libpthread\.so|librt\.so|libresolv\.so|libcrypt\.so|libutil\.so|libnss_(files|dns|compat|hesiod)|libX|libxcb|libxkb|libGL|libEGL|libGLES|libOpenGL|libdbus|libstdc\+\+\.so|libgcc_s\.so)")
             continue()
         endif()
         if(_name IN_LIST _seen)
@@ -63,3 +74,5 @@ while(_queue)
         list(APPEND _queue "${LIBDIR}/${_real}")
     endforeach()
 endwhile()
+list(LENGTH _seen _total)
+message(STATUS "BundleLinuxDeps: staged ${_total} libraries in ${LIBDIR}")
