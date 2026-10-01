@@ -337,6 +337,18 @@ if(WIN32)
     set(CPACK_NSIS_DELETE_ICONS_EXTRA
         "Delete '$SMPROGRAMS\\\\$M_STARTMENU\\\\PDF To Plain Text.lnk'")
 elseif(APPLE)
+    # Distinct artifact names per CPU architecture so the arm64 and x86_64
+    # releases coexist as separate downloads. Derived from the arch CMake is
+    # actually building — CI passes -DCMAKE_OSX_ARCHITECTURES explicitly, so
+    # there is nothing to keep in sync by hand.
+    if(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64" AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+        set(_mac_arch "universal")
+    elseif(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+        set(_mac_arch "x86_64")
+    else()
+        set(_mac_arch "arm64")
+    endif()
+    set(CPACK_SYSTEM_NAME "Darwin-${_mac_arch}")
     set(CPACK_GENERATOR "DragNDrop;ZIP")
     set(CPACK_DMG_VOLUME_NAME "PDFToPlainText")
     set(CPACK_DMG_FORMAT "UDZO")

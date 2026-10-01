@@ -26,8 +26,13 @@ jobs:
             config: linux-gcc
             preset: linux
           - os: macos-latest
-            config: macos-clang
+            config: macos-arm64
             preset: macos
+            mac_arch: arm64
+          - os: macos-15-intel
+            config: macos-intel
+            preset: macos
+            mac_arch: x86_64
 
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +113,7 @@ jobs:
           AGL_DIR="$RUNNER_TEMP/agl-stub"
           mkdir -p "$AGL_DIR/AGL.framework"
           printf 'void pdf_to_plain_text_agl_stub(void) {}\n' > "$RUNNER_TEMP/agl_stub.c"
-          clang -arch arm64 -dynamiclib \
+          clang -arch ${{ matrix.mac_arch }} -dynamiclib \
                 -install_name @rpath/AGL.framework/AGL \
                 -o "$AGL_DIR/AGL.framework/AGL" "$RUNNER_TEMP/agl_stub.c"
           echo "AGL_STUB=$AGL_DIR" >> $GITHUB_ENV
@@ -126,6 +131,9 @@ jobs:
           brew install cairo fontconfig freetype harfbuzz jpeg-turbo libpng \
                        libtiff little-cms2 nspr nss openjpeg libiconv \
                        zlib gettext gperf ninja pkgconf clang-format
+          # Homebrew lives at /opt/homebrew on arm64 runners but /usr/local
+          # on Intel runners — never hardcode either.
+          BREW_PREFIX="$(brew --prefix)"
           POPPLER_VERSION=26.04.0
           POPPLER_PREFIX="$RUNNER_TEMP/poppler"
           curl -fsSL "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" -o poppler.tar.xz
@@ -133,7 +141,8 @@ jobs:
           cmake -S "poppler-${POPPLER_VERSION}" -B poppler-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$POPPLER_PREFIX" \
-            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR;/opt/homebrew" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR;$BREW_PREFIX" \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.mac_arch }} \
             -DCMAKE_FRAMEWORK_PATH="$AGL_STUB" \
             -DCMAKE_SHARED_LINKER_FLAGS="-F$AGL_STUB" \
             -DCMAKE_CXX_FLAGS="-F$AGL_STUB" \
@@ -150,7 +159,8 @@ jobs:
             -DBUILD_MANUAL_TESTS=OFF
           cmake --build poppler-build --parallel
           cmake --install poppler-build
-          echo "PKG_CONFIG_PATH=$POPPLER_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$POPPLER_PREFIX/lib/pkgconfig:$BREW_PREFIX/lib/pkgconfig:$BREW_PREFIX/share/pkgconfig" >> $GITHUB_ENV
+          echo "BREW_PREFIX=$BREW_PREFIX" >> $GITHUB_ENV
           echo "POPPLER_PREFIX=$POPPLER_PREFIX" >> $GITHUB_ENV
           echo "poppler-qt6 version: $(pkg-config --modversion poppler-qt6)"
 
@@ -171,6 +181,7 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$POPPLER_PREFIX" \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.mac_arch }} \
             -DCMAKE_FRAMEWORK_PATH="$AGL_STUB" \
             -DCMAKE_EXE_LINKER_FLAGS="-F$AGL_STUB" \
             -DCMAKE_SHARED_LINKER_FLAGS="-F$AGL_STUB" \
@@ -229,7 +240,7 @@ jobs:
             local file="$1" deps dep base ref found d
             case " $done_files " in *" $file "*) return 0;; esac
             done_files="$done_files $file"
-            deps=$(otool -L "$file" | grep -E "^[[:space:]]+($POPPLER_PREFIX/lib/|/opt/homebrew/)" | awk '{print $1}' || true)
+            deps=$(otool -L "$file" | grep -E "^[[:space:]]+($POPPLER_PREFIX/lib/|$BREW_PREFIX/)" | awk '{print $1}' || true)
             for dep in $deps; do
               base=$(basename "$dep")
               if [ ! -e "$FRAMEWORKS/$base" ]; then
@@ -243,7 +254,7 @@ jobs:
               base=${ref#@rpath/}
               if [ ! -e "$FRAMEWORKS/$base" ]; then
                 found=""
-                for d in "$POPPLER_PREFIX/lib" /opt/homebrew/lib /opt/homebrew/opt/*/lib; do
+                for d in "$POPPLER_PREFIX/lib" "$BREW_PREFIX/lib" "$BREW_PREFIX"/opt/*/lib; do
                   if [ -e "$d/$base" ]; then found="$d/$base"; break; fi
                 done
                 if [ -z "$found" ]; then
@@ -336,7 +347,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          ZIP=$(ls packages/*-Darwin.zip | head -1)
+          ZIP=$(ls packages/*-Darwin-${{ matrix.mac_arch }}.zip | head -1)
           echo "Testing $ZIP"
           rm -rf /tmp/pdfunzip /tmp/PDFSmoke.app
           mkdir -p /tmp/pdfunzip
