@@ -172,7 +172,7 @@ Outputs per platform (in `<repo-root>/packages/`):
 | Platform | Installer |
 |----------|-----------|
 | **Windows (MinGW)** | `PDFToPlainText-1.0.0-win64.exe` (NSIS) + `PDFToPlainText-1.0.0-win64.zip` |
-| **macOS** (11 Big Sur or later — Qt 6 cannot run on older releases) | `PDFToPlainText-1.0.0-Darwin.dmg` + `.zip` |
+| **macOS** (11 Big Sur or later - Qt 6 cannot run on older releases) | `PDFToPlainText-1.0.0-Darwin-arm64.dmg` + `.zip` (Apple Silicon) and `PDFToPlainText-1.0.0-Darwin-x86_64.dmg` + `.zip` (Intel) |
 | **Linux** | `PDFToPlainText-1.0.0-Linux.tar.gz` + `PDFToPlainText-1.0.0-Linux.deb` |
 
 > **Windows: the `.exe` installer needs NSIS.** Without `makensis` on `PATH`, CPack falls back to ZIP only. To get the `.exe` too, install NSIS with your package manager: `pacman -S mingw-w64-x86_64-nsis` (MSYS2), `scoop install nsis`, or `winget install NSIS.NSIS`.
@@ -189,7 +189,7 @@ No setup is required beyond pushing the repository.
 
 1. Push to GitHub (`main` branch). The workflow file is already at `.github/workflows/ci.yml`.
 2. Open the **Actions** tab — the `CI` workflow runs on `push` / `pull_request` / `tags`.
-3. Each run builds on **Windows (MinGW) + Linux (GCC) + macOS (Clang)**, runs `cpack`, and uploads the installers as **Artifacts** (`packages-windows-mingw`, `packages-linux-gcc`, `packages-macos-clang`).
+3. Each run builds on **Windows (MinGW) + Linux (GCC) + macOS arm64 + macOS Intel**, runs `cpack`, and uploads the installers as **Artifacts** (`packages-windows-mingw`, `packages-linux-gcc`, `packages-macos-arm64`, `packages-macos-intel`).
 4. **Release with one click:** push a tag `v*` (e.g. `v1.0.0`):
 
    ```bash

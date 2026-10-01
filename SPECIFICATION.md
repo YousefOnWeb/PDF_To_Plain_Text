@@ -551,7 +551,8 @@ reference configuration:
 |---|---|---|---|---|
 | Windows (`windows-latest`, MINGW64) | `mingw-w64-x86_64-gcc` | `mingw-w64-x86_64-qt6-base` + `-qt6-tools` via MSYS2 (`ci.yml:56-71`) | `mingw-w64-x86_64-poppler-qt6` | `cmake`, `ninja`, `nsis`, `ntldd`, `pkgconf` from the same repo |
 | Linux (`ubuntu-latest`) | GCC | `jurplel/install-qt-action@v4`, `linux_gcc_64` (`ci.yml:74-82`) | `libpoppler-qt6-dev` via apt (`ci.yml:94-98`) | `pkg-config` |
-| macOS (`macos-latest`, arm64) | AppleClang | `install-qt-action`, `clang_64` (`ci.yml:84-92`) | **Built from source**, poppler 26.04.0 with `-DENABLE_QT6=ON` against that Qt (`ci.yml:120-155`) | brew cairo/fontconfig/freetype/harfbuzz/jpeg-turbo/libpng/libtiff/little-cms2/nspr/nss/openjpeg/libiconv/zlib/gettext/gperf/ninja/pkgconf/clang-format |
+| macOS arm64 (`macos-latest`) | AppleClang | `install-qt-action`, `clang_64` (universal binary, both arches) (`ci.yml:84-92`) | **Built from source**, poppler 26.04.0 with `-DENABLE_QT6=ON` against that Qt plus `-DCMAKE_OSX_ARCHITECTURES=arm64` (`ci.yml:120-155`) | brew cairo/fontconfig/freetype/harfbuzz/jpeg-turbo/libpng/libtiff/little-cms2/nspr/nss/openjpeg/libiconv/zlib/gettext/gperf/ninja/pkgconf/clang-format (prefix `/opt/homebrew`) |
+| macOS Intel (`macos-15-intel`, x86_64) | AppleClang | same Qt as arm64 | same source build plus `-DCMAKE_OSX_ARCHITECTURES=x86_64` | same brew list (prefix `/usr/local`, detected via `brew --prefix`, never hardcoded) |
 
 Three macOS facts matter and are all documented in the workflow:
 
@@ -623,7 +624,7 @@ One command after building, from `build/` (`cpack --config CPackConfig.cmake
 | Platform | Artifacts |
 |---|---|
 | Windows (MinGW) | `PDFToPlainText-<ver>-win64.exe` (NSIS) + `PDFToPlainText-<ver>-win64.zip` |
-| macOS | `PDFToPlainText-<ver>-Darwin.dmg` (with LICENSE agreement on mount) + `PDFToPlainText-<ver>-Darwin.zip` |
+| macOS | `PDFToPlainText-<ver>-Darwin-arm64.dmg` + `.zip` (Apple Silicon) and `PDFToPlainText-<ver>-Darwin-x86_64.dmg` + `.zip` (Intel); DMGs carry the LICENSE agreement on mount. `CPACK_SYSTEM_NAME` derives from `CMAKE_OSX_ARCHITECTURES`, so the two coexist with nothing to sync by hand |
 | Linux | `PDFToPlainText-<ver>-Linux.tar.gz` + `pdftoplaintext_<ver>_amd64.deb` (note: CPack `DEB-DEFAULT` lowercases the name) |
 
 Notes: without `makensis` on `PATH`, CPack falls back to ZIP-only (install
@@ -634,8 +635,8 @@ upload (shipping it once exhausted the upload action's Node heap — see §5.5).
 ### 5.5 CI pipeline (`.github/workflows/ci.yml`)
 
 Triggers: pushes to `main`/`master`, `v*` tags, pull requests, manual dispatch
-(`ci.yml:3-9`); three matrix jobs (`windows-mingw`, `linux-gcc`,
-`macos-clang`, `ci.yml:21-30`), `fail-fast: false`.
+(`ci.yml:3-9`); four matrix jobs (`windows-mingw`, `linux-gcc`,
+`macos-arm64`, `macos-intel`, `ci.yml:21-34`), `fail-fast: false`.
 
 - **Version guard first** (`ci.yml:38-53`): on tag pushes, the tag must equal
   `v<project(VERSION)>` or the run fails in seconds instead of after a full
@@ -643,12 +644,13 @@ Triggers: pushes to `main`/`master`, `v*` tags, pull requests, manual dispatch
 - Setup, configure, build per §5.1–5.2; macOS bundling per §5.3; `cpack`;
   staging-tree deletion; then **smoke tests against the exact shipped
   artifacts** — the layer that has caught every recent packaging defect:
-  - *macOS:* unpack the Darwin `.zip` (not the `.dmg` — its license agreement
-    demands interactive acceptance and `hdiutil attach` aborts headless),
-    strip quarantine, assert zero non-relocatable `otool` references outside
-    `/usr/lib`/`/System`, launch 10 s headless (`QT_QPA_PLATFORM=offscreen`),
-    scan output for loader errors (`ci.yml:335-386`). Crash `.ips` files
-    upload on failure (`ci.yml:393-400`).
+  - *macOS (both arches):* unpack the per-arch Darwin `.zip`
+    (`*-Darwin-${arch}.zip`, never the arch-less name — both exist side by
+    side; not the `.dmg` either — its license agreement demands interactive
+    acceptance and `hdiutil attach` aborts headless), strip quarantine, assert
+    zero non-relocatable `otool` references outside `/usr/lib`/`/System`,
+    launch 10 s headless (`QT_QPA_PLATFORM=offscreen`), scan output for loader
+    errors. Crash `.ips` files upload on failure.
   - *Windows:* expand the `-win64.zip` (the NSIS `.exe` cannot install
     headless — CPack's template hardcodes `RequestExecutionLevel admin` with
     no override, and UAC has nothing to click; same payload either way), gate

@@ -31,7 +31,8 @@
       <article class="card">
         <h3>Mac</h3>
         <p>Disk image (.dmg) · macOS 11 Big Sur or later</p>
-        <a class="button" id="btn-macos" href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest">Download for Mac</a>
+        <a class="button" id="btn-macos" href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest">Download for Mac (Apple Silicon)</a>
+        <p class="alt"><a id="link-macos-intel" href="https://github.com/YousefOnWeb/PDF_To_Plain_Text/releases/latest">Mac with an Intel chip?</a></p>
       </article>
       <article class="card">
         <h3>Linux</h3>
@@ -132,13 +133,17 @@
     .then(function (rel) {
       var assets = rel.assets || [];
       var win = pick(assets, [/win64.*\.exe$/i, /windows.*\.exe$/i, /\.exe$/i, /win64.*\.zip$/i, /windows.*\.zip$/i]);
-      var mac = pick(assets, [/\.dmg$/i, /mac.*\.zip$/i, /darwin.*\.zip$/i]);
+      var macArm = pick(assets, [/arm64[^/]*\.dmg$/i, /darwin[^/]*arm64[^/]*\.zip$/i, /\.dmg$/i]);
+      var macIntel = pick(assets, [/x86_64[^/]*\.dmg$/i, /intel[^/]*\.dmg$/i, /x86_64[^/]*\.zip$/i, /intel[^/]*\.zip$/i]);
       var lin = pick(assets, [/\.deb$/i, /linux.*\.tar\.gz$/i, /\.tar\.gz$/i]);
       var linTar = pick(assets, [/linux.*\.tar\.gz$/i, /\.tar\.gz$/i]);
       var ok = true;
       ok = set("btn-windows", win) && ok;
-      ok = set("btn-macos", mac) && ok;
+      ok = set("btn-macos", macArm) && ok;
       ok = set("btn-linux", lin) && ok;
+      if (macIntel) {
+        set("link-macos-intel", macIntel);
+      }
       if (linTar && (!lin || linTar.browser_download_url !== lin.browser_download_url)) {
         set("link-linux-tar", linTar);
       }
