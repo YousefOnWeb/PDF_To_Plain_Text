@@ -177,6 +177,42 @@ install(TARGETS ${PROJECT_NAME}
     BUNDLE  DESTINATION .
 )
 
+# Linux: self-contained install tree (bundled Qt/Poppler, system X11/GL only).
+# The binary finds its bundled libs via this rpath in the install tree; the
+# build tree keeps its default rpath so local `./build/PDFToPlainText` runs
+# keep working without env vars (BUILD_WITH_INSTALL_RPATH stays FALSE).
+if(UNIX AND NOT APPLE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+    # qt.conf next to the exe redirects Qt into the install tree ([Paths]
+    # Prefix=.. makes Libraries=lib and Plugins=plugins resolve under root).
+    # A file beside the executable overrides Qt's compiled-in paths.
+    file(WRITE "${CMAKE_BINARY_DIR}/qt.conf" "[Paths]\nPrefix=..\nLibraries=lib\nPlugins=plugins\n")
+    install(FILES "${CMAKE_BINARY_DIR}/qt.conf" DESTINATION bin)
+    # Ship the Qt plugins the GUI needs (platforms/ carries xcb, offscreen
+    # and minimal; xcbglintegrations covers GL-on-X11).
+    get_filename_component(_qt_root "${Qt6_DIR}/../.." ABSOLUTE)
+    foreach(_plugindir IN ITEMS platforms xcbglintegrations imageformats iconengines)
+        if(EXISTS "${_qt_root}/plugins/${_plugindir}")
+            install(DIRECTORY "${_qt_root}/plugins/${_plugindir}" DESTINATION plugins)
+        endif()
+    endforeach()
+    # Bundle the runtime closure into <prefix>/lib at install time (see script
+    # for the system set that deliberately stays out: C runtime, libstdc++,
+    # X11/GL/xkb/dbus).
+    set(_LINUX_SEARCH "")
+    foreach(_p IN LISTS CMAKE_PREFIX_PATH)
+        if(EXISTS "${_p}/lib")
+            list(APPEND _LINUX_SEARCH "${_p}/lib")
+        endif()
+    endforeach()
+    if(EXISTS "${_qt_root}/lib")
+        list(APPEND _LINUX_SEARCH "${_qt_root}/lib")
+    endif()
+    install(CODE "
+        execute_process(COMMAND \"\${CMAKE_COMMAND}\" -DEXE=\"\${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}\" -DLIBDIR=\"\${CMAKE_INSTALL_PREFIX}/lib\" -DSEARCH_LIBDIRS=\"${_LINUX_SEARCH}\" -P \"${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake\")
+    ")
+endif()
+
 # Windows: run windeployqt automatically on install + make build dir runnable without manual PATH
 if(WIN32)
     find_program(WINDEPLOYQT_EXECUTABLE windeployqt
@@ -355,7 +391,10 @@ elseif(APPLE)
 else()
     set(CPACK_GENERATOR "TGZ;DEB")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "PDFToPlainText")
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6widgets6, libpoppler-qt6-3")
+    # Only display-server prerequisites stay on the system (bundling mesa
+    # libGL would break vendor driver dispatch); Qt, Poppler and everything
+    # else ship inside the package (see the Linux block above).
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libgl1, libx11-6, libxcb1, libxkbcommon0")
     set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
     # RPM can be added on demand; enable with -DCPACK_GENERATOR="TGZ;DEB;RPM"
 endif()

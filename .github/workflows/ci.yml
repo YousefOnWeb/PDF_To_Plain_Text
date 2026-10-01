@@ -108,7 +108,7 @@ jobs:
           sudo apt-get install -y ninja-build pkg-config gettext gperf \
             libfreetype-dev libfontconfig-dev libjpeg-dev libpng-dev \
             libtiff-dev liblcms2-dev libnss3-dev libopenjpeg-dev \
-            zlib1g-dev libcurl4-openssl-dev liblzma-dev
+            zlib1g-dev libcurl4-openssl-dev liblzma-dev libgl1
           POPPLER_VERSION=26.04.0
           POPPLER_PREFIX="$RUNNER_TEMP/poppler"
           curl -fsSL "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" -o poppler.tar.xz
@@ -499,10 +499,10 @@ jobs:
 
       # Linux: boot-test the exact .tar.gz users download. Extract, verify
       # ldd shows no missing libraries, then launch headless (offscreen) and
-      # assert it stays up. Runs against the runner's Qt via LD_LIBRARY_PATH
-      # plus the system poppler the build used: this validates binary
-      # integrity and startup, not the .deb dependency closure (the .deb
-      # relies on distro Qt, which is a separate packaging question).
+      # assert it stays up. No LD_LIBRARY_PATH: the payload is self-contained
+      # via $ORIGIN rpath, so needing it would mean the bundling regressed.
+      # (The .deb is not installed here — its four declared system libs are a
+      # subset of what this runner already has.)
       - name: Smoke-test tarball (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -516,16 +516,16 @@ jobs:
             echo "::error::No PDFToPlainText binary in $TGZ"
             exit 1
           fi
-          echo "--- ldd ---"
-          LD_LIBRARY_PATH="$QT_ROOT_DIR/lib" ldd "$BIN"
-          MISSING=$(LD_LIBRARY_PATH="$QT_ROOT_DIR/lib" ldd "$BIN" | grep "not found" || true)
+          echo "--- ldd (must resolve via bundled \$ORIGIN rpath) ---"
+          ldd "$BIN"
+          MISSING=$(ldd "$BIN" | grep "not found" || true)
           if [ -n "$MISSING" ]; then
             echo "::error::Missing shared libraries:"
             echo "$MISSING"
             exit 1
           fi
           echo "--- launching headless ---"
-          LD_LIBRARY_PATH="$QT_ROOT_DIR/lib" QT_QPA_PLATFORM=offscreen "$BIN" > /tmp/smoke-linux.log 2>&1 &
+          QT_QPA_PLATFORM=offscreen "$BIN" > /tmp/smoke-linux.log 2>&1 &
           PID=$!
           sleep 10
           if ! kill -0 $PID 2>/dev/null; then
