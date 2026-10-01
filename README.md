@@ -28,13 +28,15 @@ You need four things. **How** you install them is up to you — pick your prefer
 | **CMake >= 3.21** | CMake CLI | `cmake.org` installer, `brew install cmake`, `sudo apt install cmake`, MSYS2 `pacman -S mingw-w64-x86_64-cmake` |
 | **C++ compiler** | GCC / MinGW-w64 / Clang | MSYS2 `pacman -S mingw-w64-x86_64-gcc`, `sudo apt install build-essential g++`, `brew install gcc`, `clang` from LLVM |
 | **Qt 6.2+ (Widgets + Concurrent)** | Qt SDK | MSYS2 `pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools`, `aqtinstall`, `sudo apt install qt6-base-dev`, `brew install qt@6` |
-| **Poppler-Qt6** | Poppler with Qt6 bindings | MSYS2 `pacman -S mingw-w64-x86_64-poppler-qt6`, `sudo apt install libpoppler-qt6-dev`, `vcpkg install poppler[qt]:x64-mingw-dynamic`. **On macOS, see the note below** |
+| **Poppler-Qt6** | Poppler with Qt6 bindings | MSYS2 `pacman -S mingw-w64-x86_64-poppler-qt6`, `sudo apt install libpoppler-qt6-dev` (Ubuntu 24.04+, `universe`), `vcpkg install poppler[qt]:x64-mingw-dynamic`. **On macOS, see the note below; on Ubuntu 22.04, see the Linux note below** |
 
 > After you install them, **note where they landed** — you will point CMake at those locations in the next section. You do not need to copy DLLs manually; the build automates `windeployqt` + runtime DLL deployment so `build/PDFToPlainText.exe` runs immediately without editing `PATH`.
 
 The repository also ships a `vcpkg.json` manifest so `vcpkg` with the MinGW triplet can fetch Poppler automatically. Note the vcpkg feature is called **`qt`**, not `qt6` — `vcpkg install poppler[qt]:x64-mingw-dynamic`.
 
 > **macOS: you must build Poppler yourself.** `brew install poppler` cannot work here — Homebrew's formula hardcodes `-DENABLE_QT6=OFF`, so it ships no `poppler-qt6.pc` and no Qt6 headers. See [Build Poppler on macOS](#build-poppler-on-macos).
+
+> **Linux: match the distro to the method.** The prebuilt `.deb`/`.tar.gz` need Qt ≥ 6.8 and `libpoppler-qt6` at *runtime*, which no Ubuntu release provides as packages today (22.04 has neither; 24.04+ has poppler but ships Qt 6.4). So on any Ubuntu, **build from source**: on 24.04, `sudo apt install qt6-base-dev libpoppler-qt6-dev` (`universe`) then build normally; on 22.04, `libpoppler-qt6-dev` does not exist at all (Qt6 poppler packaging starts at 24.04) — install `qt6-base-dev` (6.2.4, `universe`), build poppler from source with `-DENABLE_QT6=ON` as in [Build Poppler on macOS](#build-poppler-on-macos) (requires NSS3 ≥ 3.68), then build normally. Bundling Qt into the Linux packages so they run anywhere is planned work.
 
 ---
 
@@ -173,7 +175,7 @@ Outputs per platform (in `<repo-root>/packages/`):
 |----------|-----------|
 | **Windows (MinGW)** | `PDFToPlainText-1.0.0-win64.exe` (NSIS) + `PDFToPlainText-1.0.0-win64.zip` |
 | **macOS** (12 Monterey or later - Qt 6.8 itself requires macOS 12, so older releases refuse to launch) | `PDFToPlainText-1.0.0-Darwin-arm64.dmg` + `.zip` (Apple Silicon) and `PDFToPlainText-1.0.0-Darwin-x86_64.dmg` + `.zip` (Intel) |
-| **Linux** | `PDFToPlainText-1.0.0-Linux.tar.gz` + `PDFToPlainText-1.0.0-Linux.deb` |
+| **Linux** | `PDFToPlainText-1.0.0-Linux.tar.gz` + `pdftoplaintext_<ver>_amd64.deb` (note: CPack lowercases the `.deb` name) |
 
 > **Windows: the `.exe` installer needs NSIS.** Without `makensis` on `PATH`, CPack falls back to ZIP only. To get the `.exe` too, install NSIS with your package manager: `pacman -S mingw-w64-x86_64-nsis` (MSYS2), `scoop install nsis`, or `winget install NSIS.NSIS`.
 

@@ -772,10 +772,13 @@ layered:
 ### 6.6 Known limitations (acknowledged, not queued as bugs)
 
 - Scanned-image PDFs convert to empty files (no OCR, §1.5).
-- The Linux `.deb` declares unversioned Qt system dependencies while the
-  binary is built against Qt 6.8: on distros shipping older Qt it may refuse
-  to run. Bundling Qt on Linux (or versioned deps) is the open packaging
-  question noted in §5.3/§5.5.
+- Linux packages do not run from a plain install today, for two verified
+  reasons: the `.deb` declares `libpoppler-qt6-3`, which exists on no Ubuntu
+  release (24.04+ renamed it `libpoppler-qt6-3t64`; 22.04 has no Qt6 poppler
+  packaging at all), and the binaries need Qt ≥ 6.8 at runtime while even
+  24.04 ships Qt 6.4. The working Linux path is building from source (§5.2);
+  bundling Qt on Linux (or versioned deps) is the open packaging question
+  noted in §5.3/§5.5 and roadmap item 3 below.
 - No mid-run cancellation, no per-file retry button, no output naming options,
   no drag-reorder of the queue. Each was omitted deliberately (§3.9); each
   needs a proposal, not a bug report, to enter the roadmap.
