@@ -39,6 +39,17 @@ while(_queue)
                     set(_path "${_d}/${_name}")
                     break()
                 endif()
+                # Resolve a missing SONAME against versioned files, e.g.
+                # libpoppler-qt6.so.3 against libpoppler-qt6.so.3.0.0 when the
+                # symlink itself is absent from the search dir.
+                if(NOT _path AND _name MATCHES "^(.*\.so\.[0-9]+)$")
+                    file(GLOB _candidates "${_d}/${CMAKE_MATCH_1}.*")
+                    list(SORT _candidates)
+                    if(_candidates)
+                        list(GET _candidates 0 _path)
+                        break()
+                    endif()
+                endif()
             endforeach()
             if(NOT _path)
                 message(FATAL_ERROR "BundleLinuxDeps: ${_name} needed by ${_f} found nowhere (${SEARCH_LIBDIRS})")

@@ -198,7 +198,11 @@ if(UNIX AND NOT APPLE)
     endforeach()
     # Bundle the runtime closure into <prefix>/lib at install time (see script
     # for the system set that deliberately stays out: C runtime, libstdc++,
-    # X11/GL/xkb/dbus).
+    # X11/GL/xkb/dbus). _bundle_root honors DESTDIR so distro-style
+    # DESTDIR=/x installs resolve correctly; under CPack DESTDIR is empty
+    # and the staging prefix applies directly. RESULT_VARIABLE is checked:
+    # an unchecked bundler failure would otherwise install a broken tree
+    # that only detonates later at launch.
     set(_LINUX_SEARCH "")
     foreach(_p IN LISTS CMAKE_PREFIX_PATH)
         if(EXISTS "${_p}/lib")
@@ -209,7 +213,24 @@ if(UNIX AND NOT APPLE)
         list(APPEND _LINUX_SEARCH "${_qt_root}/lib")
     endif()
     install(CODE "
-        execute_process(COMMAND \"\${CMAKE_COMMAND}\" -DEXE=\"\${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}\" -DLIBDIR=\"\${CMAKE_INSTALL_PREFIX}/lib\" -DSEARCH_LIBDIRS=\"${_LINUX_SEARCH}\" -P \"${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake\")
+        set(_bundle_root \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}\")
+        set(_bundle_exe \"\${_bundle_root}/bin/${PROJECT_NAME}\")
+        set(_bundle_lib \"\${_bundle_root}/lib\")
+        message(STATUS \"Linux dependency search directories: ${_LINUX_SEARCH}\")
+        if(NOT EXISTS \"\${_bundle_exe}\")
+            message(FATAL_ERROR \"Linux dependency bundling: installed executable not found: \${_bundle_exe}\")
+        endif()
+        execute_process(
+            COMMAND \"\${CMAKE_COMMAND}\"
+                -DEXE=\${_bundle_exe}
+                -DLIBDIR=\${_bundle_lib}
+                -DSEARCH_LIBDIRS=\"${_LINUX_SEARCH}\"
+                -P \"${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake\"
+            RESULT_VARIABLE _bundle_rc
+        )
+        if(NOT _bundle_rc EQUAL 0)
+            message(FATAL_ERROR \"Linux dependency bundling failed with exit code \${_bundle_rc}\")
+        endif()
     ")
 endif()
 
