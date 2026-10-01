@@ -36,7 +36,7 @@ The repository also ships a `vcpkg.json` manifest so `vcpkg` with the MinGW trip
 
 > **macOS: you must build Poppler yourself.** `brew install poppler` cannot work here — Homebrew's formula hardcodes `-DENABLE_QT6=OFF`, so it ships no `poppler-qt6.pc` and no Qt6 headers. See [Build Poppler on macOS](#build-poppler-on-macos).
 
-> **Linux: match the distro to the method.** The prebuilt `.deb`/`.tar.gz` need Qt ≥ 6.8 and `libpoppler-qt6` at *runtime*, which no Ubuntu release provides as packages today (22.04 has neither; 24.04+ has poppler but ships Qt 6.4). So on any Ubuntu, **build from source**: on 24.04, `sudo apt install qt6-base-dev libpoppler-qt6-dev` (`universe`) then build normally; on 22.04, `libpoppler-qt6-dev` does not exist at all (Qt6 poppler packaging starts at 24.04) — install `qt6-base-dev` (6.2.4, `universe`), build poppler from source with `-DENABLE_QT6=ON` as in [Build Poppler on macOS](#build-poppler-on-macos) (requires NSS3 ≥ 3.68), then build normally. Bundling Qt into the Linux packages so they run anywhere is planned work.
+> **Linux: match the distro to the method.** The prebuilt `.deb`/`.tar.gz` bundle Qt and Poppler inside and run on Ubuntu 22.04 and newer (desktop — an X11/GL display stack is assumed). To **build** from source: on 24.04, `sudo apt install qt6-base-dev libpoppler-qt6-dev` (`universe`) then build normally; on 22.04, `libpoppler-qt6-dev` does not exist at all (Qt6 poppler packaging starts at 24.04) — install `qt6-base-dev` (6.2.4, `universe`), build poppler from source with `-DENABLE_QT6=ON` as in [Build Poppler on macOS](#build-poppler-on-macos) (requires NSS3 ≥ 3.68), then build normally.
 
 ---
 

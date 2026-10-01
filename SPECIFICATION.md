@@ -550,7 +550,7 @@ reference configuration:
 | OS | Compiler | Qt 6.8.2 | Poppler-Qt6 | Extras |
 |---|---|---|---|---|
 | Windows (`windows-latest`, MINGW64) | `mingw-w64-x86_64-gcc` | `mingw-w64-x86_64-qt6-base` + `-qt6-tools` via MSYS2 (`ci.yml:56-71`) | `mingw-w64-x86_64-poppler-qt6` | `cmake`, `ninja`, `nsis`, `ntldd`, `pkgconf` from the same repo |
-| Linux (`ubuntu-latest`) | GCC | `jurplel/install-qt-action@v4`, `linux_gcc_64` (`ci.yml:74-82`) | `libpoppler-qt6-dev` via apt (`ci.yml:94-98`) | `pkg-config` |
+| Linux (`ubuntu-22.04`) | GCC 11 | `jurplel/install-qt-action@v4`, `linux_gcc_64` (`ci.yml`) | **Built from source**, poppler 26.04.0 with `-DENABLE_QT6=ON` against that Qt (jammy carries NSS 3.98, above the 3.68 minimum) | `ninja-build pkg-config gettext gperf` + image/font dev packages + `libgl1` (runner smoke-test insurance) |
 | macOS arm64 (`macos-latest`) | AppleClang | `install-qt-action`, `clang_64` (universal binary, both arches) (`ci.yml:84-92`) | **Built from source**, poppler 26.04.0 with `-DENABLE_QT6=ON` against that Qt plus `-DCMAKE_OSX_ARCHITECTURES=arm64` (`ci.yml:120-155`) | brew cairo/fontconfig/freetype/harfbuzz/jpeg-turbo/libpng/libtiff/little-cms2/nspr/nss/openjpeg/libiconv/zlib/gettext/gperf/ninja/pkgconf/clang-format (prefix `/opt/homebrew`) |
 | macOS Intel (`macos-15-intel`, x86_64) | AppleClang | same Qt as arm64 | same source build plus `-DCMAKE_OSX_ARCHITECTURES=x86_64` | same brew list (prefix `/usr/local`, detected via `brew --prefix`, never hardcoded) |
 
@@ -611,9 +611,15 @@ on C++ runtime symbols.
   Homebrew transitive deps rewritten to `@rpath`, plus the shipped AGL stub.
   A `check_rpath` assertion fails the build if any owned `@rpath` reference
   lacks its file — dyld's own check, run early with precise names.
-- **Linux:** no bundling; the `.deb` declares `libqt6widgets6,
-  libpoppler-qt6-3` system dependencies. (Validating that closure is an open
-  packaging question — see §5.5 and Part 6.)
+- **Linux:** no system Qt/Poppler required at runtime. The binary carries
+  `INSTALL_RPATH $ORIGIN/../lib` (install tree only — local build-tree runs
+  are unaffected), `qt.conf` beside the exe redirects Qt into the tree, the
+  `platforms`/`xcbglintegrations`/`imageformats`/`iconengines` plugin dirs
+  ship under `plugins/`, and `cmake/BundleLinuxDeps.cmake` copies the `ldd`
+  closure into `lib/` at install time (C runtime, libstdc++, X11/GL/xkb/dbus
+  stay on the system; anything else missing is fatal). The `.deb` declares
+  only `libgl1, libx11-6, libxcb1, libxkbcommon0` — bundling mesa libGL would
+  break vendor driver dispatch. glibc floor is 2.35 (Ubuntu 22.04 build host).
 
 ### 5.4 Installer artifacts (CPack)
 
@@ -658,8 +664,9 @@ Triggers: pushes to `main`/`master`, `v*` tags, pull requests, manual dispatch
     10 s offscreen launch (`ci.yml:395-454`). The `ntldd` gate is direct-deps
     only: the recursive walk lists virtual entries (`api-ms-win-*`,
     `ext-ms-*`, HVSI/attestation shims) as missing on healthy machines.
-  - *Linux:* extract the `-Linux.tar.gz`, gate `ldd` on missing libraries
-    (against the runner Qt + system poppler), same 10 s launch (`ci.yml:462-495`).
+  - *Linux:* extract the `-Linux.tar.gz`, gate `ldd` on missing libraries with
+    no `LD_LIBRARY_PATH` (the payload is self-contained via `$ORIGIN` rpath,
+    so needing it would mean the bundling regressed), same 10 s launch.
 - **Upload** (`ci.yml:515-530`): only real installer extensions, never
   directories; `NODE_OPTIONS=--max-old-space-size=8192` plus
   `compression-level: 0` (installers are already compressed).
@@ -772,13 +779,14 @@ layered:
 ### 6.6 Known limitations (acknowledged, not queued as bugs)
 
 - Scanned-image PDFs convert to empty files (no OCR, §1.5).
-- Linux packages do not run from a plain install today, for two verified
-  reasons: the `.deb` declares `libpoppler-qt6-3`, which exists on no Ubuntu
-  release (24.04+ renamed it `libpoppler-qt6-3t64`; 22.04 has no Qt6 poppler
-  packaging at all), and the binaries need Qt ≥ 6.8 at runtime while even
-  24.04 ships Qt 6.4. The working Linux path is building from source (§5.2);
-  bundling Qt on Linux (or versioned deps) is the open packaging question
-  noted in §5.3/§5.5 and roadmap item 3 below.
+- Linux packages historically did not run from a plain install: the `.deb`
+  once declared `libpoppler-qt6-3`, which exists on no Ubuntu release (24.04+
+  renamed it `libpoppler-qt6-3t64`; 22.04 has no Qt6 poppler packaging at
+  all), and the binaries need Qt ≥ 6.8 while even 24.04 ships Qt 6.4.
+  Resolved by building on Ubuntu 22.04 (glibc 2.35 floor) with poppler from
+  source and bundling the Qt/Poppler closure into the packages (§5.3); the
+  `.deb` now declares only display-server prerequisites. A plain Ubuntu
+  desktop install remains an assumption, not a guarantee.
 - No mid-run cancellation, no per-file retry button, no output naming options,
   no drag-reorder of the queue. Each was omitted deliberately (§3.9); each
   needs a proposal, not a bug report, to enter the roadmap.
@@ -793,7 +801,9 @@ Ordered by value-to-effort as judged today; nothing here is promised:
    file, so a cooperative flag is a small, safe addition).
 2. **macOS signing + notarization** (paid Apple Developer account required),
    graduating today's ad-hoc posture (§6.4) to a first-launch without warnings.
-3. **Linux Qt bundling** (resolves §6.6's `.deb` question properly).
+3. ~~**Linux Qt bundling**~~ — done: Qt/Poppler ship inside the Linux packages
+   (§5.3); the remaining work would be un-bundling nothing, only extending
+   distro coverage if a floor older than Ubuntu 22.04 is ever wanted.
 4. **Output naming options** (e.g. page separators, filename patterns) —
    weighed against the one-setting philosophy; likely rejected or minimal.
 5. **Localization framework** (Qt Linguist + `.ts` files) if a second UI
