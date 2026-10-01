@@ -189,10 +189,26 @@ if(UNIX AND NOT APPLE)
     file(WRITE "${CMAKE_BINARY_DIR}/qt.conf" "[Paths]\nPrefix=..\nLibraries=lib\nPlugins=plugins\n")
     install(FILES "${CMAKE_BINARY_DIR}/qt.conf" DESTINATION bin)
     # Ship the Qt plugins the GUI needs (platforms/ carries xcb, offscreen
-    # and minimal; xcbglintegrations covers GL-on-X11). Qt6_DIR is
-    # <prefix>/lib/cmake/Qt6, so the prefix is THREE levels up — two levels
-    # lands on <prefix>/lib and every EXISTS check below silently skips.
-    get_filename_component(_qt_root "${Qt6_DIR}/../../.." ABSOLUTE)
+    # and minimal; xcbglintegrations covers GL-on-X11). The Qt root is found
+    # by PROBING, not by assuming Qt6_DIR's depth: depending on how Qt was
+    # discovered, Qt6_DIR can be <root>/lib/cmake/Qt6, <root>/lib/cmake, or
+    # <root> itself, and a wrong fixed-depth guess silently skips every rule
+    # below via its EXISTS guards (observed in CI: Qt never entered the
+    # search list). The first candidate actually containing the Qt6Core
+    # library wins; both values are printed so the configure log settles
+    # any future doubt about where Qt came from.
+    set(_qt_root "")
+    foreach(_c IN ITEMS "${Qt6_DIR}/../../.." "${Qt6_DIR}/../.." "${Qt6_DIR}" "$ENV{QT_ROOT_DIR}")
+        get_filename_component(_cand "${_c}" ABSOLUTE)
+        if(EXISTS "${_cand}/lib/libQt6Core.so.6" OR EXISTS "${_cand}/lib/libQt6Core.so")
+            set(_qt_root "${_cand}")
+            break()
+        endif()
+    endforeach()
+    message(STATUS "Linux Qt bundling: Qt6_DIR=${Qt6_DIR} -> Qt root=${_qt_root}")
+    if(NOT _qt_root)
+        message(WARNING "Linux Qt bundling: Qt root not found; plugins and Qt search dir will be skipped")
+    endif()
     foreach(_plugindir IN ITEMS platforms xcbglintegrations imageformats iconengines)
         if(EXISTS "${_qt_root}/plugins/${_plugindir}")
             install(DIRECTORY "${_qt_root}/plugins/${_plugindir}" DESTINATION plugins)
