@@ -107,7 +107,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build pkg-config gettext gperf \
             libfreetype-dev libfontconfig-dev libjpeg-dev libpng-dev \
-            libtiff-dev liblcms2-dev libnss3-dev libopenjpeg-dev \
+            libtiff-dev liblcms2-dev libnss3-dev libopenjp2-7-dev \
             zlib1g-dev libcurl4-openssl-dev liblzma-dev libgl1
           POPPLER_VERSION=26.04.0
           POPPLER_PREFIX="$RUNNER_TEMP/poppler"
