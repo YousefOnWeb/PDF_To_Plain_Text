@@ -218,11 +218,14 @@ if(UNIX AND NOT APPLE)
     # for the system set that deliberately stays out: C runtime, libstdc++,
     # X11/GL/xkb/dbus). Both lib/ and Debian multiarch lib/x86_64-linux-gnu
     # are searched below: GNUInstallDirs puts poppler's libraries in the
-    # latter on Ubuntu. _bundle_root honors DESTDIR so distro-style
-    # DESTDIR=/x installs resolve correctly; under CPack DESTDIR is empty
-    # and the staging prefix applies directly. RESULT_VARIABLE is checked:
-    # an unchecked bundler failure would otherwise install a broken tree
-    # that only detonates later at launch.
+    # latter on Ubuntu.
+    # The search list travels via a FILE, not a -D argument, and the CODE
+    # block contains no bare quotes — both learned the hard way: in CMake
+    # language embedded quotes do not group, so -DSEARCH="a;b" splits at
+    # runtime (single quoted entry, rest swallowed), while bare quotes inside
+    # install(CODE "...") terminate the outer string and truncate generation
+    # (proven locally: execute_process body vanished from cmake_install.cmake
+    # leaving an unbalanced file that fails with 'missing ending )' at install).
     set(_LINUX_SEARCH "")
     foreach(_p IN LISTS CMAKE_PREFIX_PATH)
         foreach(_subdir IN ITEMS lib lib/x86_64-linux-gnu)
@@ -234,20 +237,22 @@ if(UNIX AND NOT APPLE)
     if(EXISTS "${_qt_root}/lib")
         list(APPEND _LINUX_SEARCH "${_qt_root}/lib")
     endif()
+    string(REPLACE ";" "\n" _search_nl "${_LINUX_SEARCH}")
+    file(WRITE "${CMAKE_BINARY_DIR}/linux_search_dirs.txt" "${_search_nl}\n")
     install(CODE "
         set(_bundle_root \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}\")
         set(_bundle_exe \"\${_bundle_root}/bin/${PROJECT_NAME}\")
         set(_bundle_lib \"\${_bundle_root}/lib\")
-        message(STATUS \"Linux dependency search directories: ${_LINUX_SEARCH}\")
+        message(STATUS \"Linux dependency search list file: ${CMAKE_BINARY_DIR}/linux_search_dirs.txt\")
         if(NOT EXISTS \"\${_bundle_exe}\")
             message(FATAL_ERROR \"Linux dependency bundling: installed executable not found: \${_bundle_exe}\")
         endif()
         execute_process(
             COMMAND \"\${CMAKE_COMMAND}\"
-                "-DEXE=\${_bundle_exe}"
-                "-DLIBDIR=\${_bundle_lib}"
-                "-DSEARCH_LIBDIRS=${_LINUX_SEARCH}"
-                "-P" "${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake"
+                -DEXE=\"\${_bundle_exe}\"
+                -DLIBDIR=\"\${_bundle_lib}\"
+                -DSEARCH_LIST_FILE=\"${CMAKE_BINARY_DIR}/linux_search_dirs.txt\"
+                -P \"${CMAKE_SOURCE_DIR}/cmake/BundleLinuxDeps.cmake\"
             RESULT_VARIABLE _bundle_rc
         )
         if(NOT _bundle_rc EQUAL 0)

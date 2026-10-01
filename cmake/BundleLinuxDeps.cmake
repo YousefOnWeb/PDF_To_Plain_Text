@@ -1,6 +1,9 @@
 # BundleLinuxDeps.cmake - copy the runtime shared-library closure for Linux.
 # Usage (install time, via install(CODE)):
-#   cmake -DEXE=<installed binary> -DLIBDIR=<install lib/> -DSEARCH_LIBDIRS="a;b" -P BundleLinuxDeps.cmake
+#   cmake -DEXE=<installed binary> -DLIBDIR=<install lib/> -DSEARCH_LIST_FILE=<file> -P BundleLinuxDeps.cmake
+# where <file> holds one search dir per line. Do NOT pass the list itself via
+# -D: a semicolon list cannot survive install(CODE "...") intact in any
+# quoting style, so -DSEARCH_LIBDIRS is only a fallback for direct invocation.
 #
 # NOTE ON STYLE: this file runs via `cmake -P`, which sets no policies
 # (there is no project() call in script mode), so cmake_minimum_required
@@ -19,6 +22,16 @@ cmake_minimum_required(VERSION 3.21)
 # the package would not run.
 if(NOT EXE OR NOT LIBDIR)
     message(FATAL_ERROR "BundleLinuxDeps.cmake requires EXE and LIBDIR")
+endif()
+# Search dirs arrive via file, not -D: a semicolon list cannot survive
+# install(CODE "...") intact (bare quotes terminate the outer string, and
+# embedded quotes do not group, so the value splits and corrupts).
+if(DEFINED SEARCH_LIST_FILE AND EXISTS "${SEARCH_LIST_FILE}")
+    file(READ "${SEARCH_LIST_FILE}" _search_raw)
+    string(REPLACE "\n" ";" SEARCH_LIBDIRS "${_search_raw}")
+endif()
+if(NOT SEARCH_LIBDIRS)
+    message(STATUS "BundleLinuxDeps: no search dirs; only absolute ldd paths will resolve")
 endif()
 # Self-report: install(CODE) diagnostics have proven unreliable witnesses in
 # CI logs, so the script states its own inputs. If SEARCH_LIBDIRS ever prints
