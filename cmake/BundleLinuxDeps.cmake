@@ -20,6 +20,12 @@ cmake_minimum_required(VERSION 3.21)
 if(NOT EXE OR NOT LIBDIR)
     message(FATAL_ERROR "BundleLinuxDeps.cmake requires EXE and LIBDIR")
 endif()
+# Self-report: install(CODE) diagnostics have proven unreliable witnesses in
+# CI logs, so the script states its own inputs. If SEARCH_LIBDIRS ever prints
+# short here, the problem is upstream (generation), not in this script.
+message(STATUS "BundleLinuxDeps: EXE=${EXE}")
+message(STATUS "BundleLinuxDeps: LIBDIR=${LIBDIR}")
+message(STATUS "BundleLinuxDeps: SEARCH_LIBDIRS=${SEARCH_LIBDIRS}")
 
 set(_queue "${EXE}")
 set(_seen "")
