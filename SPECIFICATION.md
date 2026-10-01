@@ -38,7 +38,7 @@
 | Repository | `https://github.com/YousefOnWeb/PDF_To_Plain_Text` |
 | End-user site | `https://yousefonweb.github.io/PDF_To_Plain_Text/` (`docs/`) |
 | Technology | C++17, Qt 6 (Widgets + Concurrent), Poppler-Qt6, CMake ≥ 3.21 |
-| Platforms | Windows 10/11 64-bit (MinGW-w64), macOS 11+ arm64, Linux 64-bit (Ubuntu/Debian-family `.deb` plus portable `.tar.gz`) |
+| Platforms | Windows 10/11 64-bit (MinGW-w64), macOS 12+ on both arm64 and x86_64 (Qt 6.8 floor — verified against Qt docs and on Big Sur hardware), Linux 64-bit (Ubuntu/Debian-family `.deb` plus portable `.tar.gz`; see §6.6 for distro limits) |
 | UI language | English only |
 
 ### 1.2 Problem statement
