@@ -189,8 +189,10 @@ if(UNIX AND NOT APPLE)
     file(WRITE "${CMAKE_BINARY_DIR}/qt.conf" "[Paths]\nPrefix=..\nLibraries=lib\nPlugins=plugins\n")
     install(FILES "${CMAKE_BINARY_DIR}/qt.conf" DESTINATION bin)
     # Ship the Qt plugins the GUI needs (platforms/ carries xcb, offscreen
-    # and minimal; xcbglintegrations covers GL-on-X11).
-    get_filename_component(_qt_root "${Qt6_DIR}/../.." ABSOLUTE)
+    # and minimal; xcbglintegrations covers GL-on-X11). Qt6_DIR is
+    # <prefix>/lib/cmake/Qt6, so the prefix is THREE levels up — two levels
+    # lands on <prefix>/lib and every EXISTS check below silently skips.
+    get_filename_component(_qt_root "${Qt6_DIR}/../../.." ABSOLUTE)
     foreach(_plugindir IN ITEMS platforms xcbglintegrations imageformats iconengines)
         if(EXISTS "${_qt_root}/plugins/${_plugindir}")
             install(DIRECTORY "${_qt_root}/plugins/${_plugindir}" DESTINATION plugins)
@@ -198,16 +200,20 @@ if(UNIX AND NOT APPLE)
     endforeach()
     # Bundle the runtime closure into <prefix>/lib at install time (see script
     # for the system set that deliberately stays out: C runtime, libstdc++,
-    # X11/GL/xkb/dbus). _bundle_root honors DESTDIR so distro-style
+    # X11/GL/xkb/dbus). Both lib/ and Debian multiarch lib/x86_64-linux-gnu
+    # are searched below: GNUInstallDirs puts poppler's libraries in the
+    # latter on Ubuntu. _bundle_root honors DESTDIR so distro-style
     # DESTDIR=/x installs resolve correctly; under CPack DESTDIR is empty
     # and the staging prefix applies directly. RESULT_VARIABLE is checked:
     # an unchecked bundler failure would otherwise install a broken tree
     # that only detonates later at launch.
     set(_LINUX_SEARCH "")
     foreach(_p IN LISTS CMAKE_PREFIX_PATH)
-        if(EXISTS "${_p}/lib")
-            list(APPEND _LINUX_SEARCH "${_p}/lib")
-        endif()
+        foreach(_subdir IN ITEMS lib lib/x86_64-linux-gnu)
+            if(EXISTS "${_p}/${_subdir}")
+                list(APPEND _LINUX_SEARCH "${_p}/${_subdir}")
+            endif()
+        endforeach()
     endforeach()
     if(EXISTS "${_qt_root}/lib")
         list(APPEND _LINUX_SEARCH "${_qt_root}/lib")
