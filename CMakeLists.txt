@@ -455,7 +455,11 @@ else()
     # Only display-server prerequisites stay on the system (bundling mesa
     # libGL would break vendor driver dispatch); Qt, Poppler and everything
     # else ship inside the package (see the Linux block above).
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libgl1, libx11-6, libxcb1, libxkbcommon0")
+    # libxcb-cursor0 is load-bearing since Qt 6.5: the xcb platform plugin
+    # fails to load without it. The remaining libxcb*/libxkbcommon-x11 libs
+    # are the rest of libqxcb.so's runtime closure; libdbus-1-3 covers the
+    # bundled QtDBus linkage (BundleLinuxDeps.cmake excludes libdbus).
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libgl1, libx11-6, libxcb1, libxkbcommon0, libxcb-cursor0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0, libxcb-render-util0, libxcb-shape0, libxkbcommon-x11-0, libdbus-1-3")
     set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
     # RPM can be added on demand; enable with -DCPACK_GENERATOR="TGZ;DEB;RPM"
 endif()
