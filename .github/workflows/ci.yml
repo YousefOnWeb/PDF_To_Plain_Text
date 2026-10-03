@@ -501,7 +501,7 @@ jobs:
       # ldd shows no missing libraries, then launch headless (offscreen) and
       # assert it stays up. No LD_LIBRARY_PATH: the payload is self-contained
       # via $ORIGIN rpath, so needing it would mean the bundling regressed.
-      # (The .deb is not installed here — its four declared system libs are a
+      # (The .deb is not installed here — its declared system libs are a
       # subset of what this runner already has.)
       - name: Smoke-test tarball (Linux)
         if: runner.os == 'Linux'
@@ -524,6 +524,20 @@ jobs:
             echo "$MISSING"
             exit 1
           fi
+          echo "--- plugin closure (xcb/wayland dlopen their own Qt libs) ---"
+          PLUG_FAIL=0
+          for p in $(find /tmp/pdflinux -path "*/plugins/*.so"); do
+            BAD=$(ldd "$p" 2>/dev/null | grep "not found" || true)
+            if [ -n "$BAD" ]; then
+              NONSYS=$(echo "$BAD" | grep -vE "libX|libxcb|libxkb|libGL|libEGL|libOpenGL|libdbus|libstdc|libgcc_s" || true)
+              if [ -n "$NONSYS" ]; then
+                echo "::error::Missing bundled libs for $p:"
+                echo "$NONSYS"
+                PLUG_FAIL=1
+              fi
+            fi
+          done
+          if [ "$PLUG_FAIL" -ne 0 ]; then exit 1; fi
           echo "--- launching headless ---"
           QT_QPA_PLATFORM=offscreen "$BIN" > /tmp/smoke-linux.log 2>&1 &
           PID=$!

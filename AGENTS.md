@@ -76,6 +76,10 @@ disables Qt6, so macOS also builds Poppler from source. See `README.md`.
   not propagate to transitive lookups, so a bundled lib whose dependency
   is also bundled (`libpoppler-qt6` → `libpoppler`) still resolves
   `not found` — the exe's `$ORIGIN/../lib` only covers direct deps.
+- `ldd` on the exe never sees Qt platform plugins (`plugins/platforms/*.so`
+  are `dlopen()`ed): seed them into the bundler queue or their exclusive
+  deps (`libQt6XcbQpa` ← `libqxcb.so`) ship missing and only GUI platforms
+  fail — offscreen smoke tests stay green and hide it.
 
 ## Testing without a display
 

@@ -49,6 +49,17 @@ message(STATUS "BundleLinuxDeps: LIBDIR=${LIBDIR}")
 message(STATUS "BundleLinuxDeps: SEARCH_LIBDIRS=${SEARCH_LIBDIRS}")
 
 set(_queue "${EXE}")
+# Qt platform plugins (plugins/platforms/libqxcb.so, ...) are dlopen()ed at
+# runtime, so ldd on EXE never sees them — yet they carry exclusive bundled
+# dependencies nothing else links (e.g. libQt6XcbQpa.so.6, needed only by
+# libqxcb.so). Without them the package launches headless-only: offscreen
+# works, xcb/wayland die with "no Qt platform plugin could be initialized".
+# At install time the plugins are already staged beside bin/ (install of
+# DIRECTORY plugins runs before install(CODE)), so seed them into the queue.
+get_filename_component(_bundle_bindir "${EXE}" DIRECTORY)
+get_filename_component(_bundle_prefix "${_bundle_bindir}" DIRECTORY)
+file(GLOB_RECURSE _plugin_shared "${_bundle_prefix}/plugins/*.so")
+list(APPEND _queue ${_plugin_shared})
 set(_seen "")
 while(_queue)
     list(POP_FRONT _queue _f)
