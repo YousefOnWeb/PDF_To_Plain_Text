@@ -215,9 +215,14 @@ if(UNIX AND NOT APPLE)
         message(WARNING "Linux Qt bundling: Qt root not found; plugins and Qt search dir will be skipped")
     endif()
     foreach(_plugindir IN ITEMS platforms xcbglintegrations imageformats iconengines)
-        if(EXISTS "${_qt_root}/plugins/${_plugindir}")
-            install(DIRECTORY "${_qt_root}/plugins/${_plugindir}" DESTINATION plugins)
-        endif()
+        # Standard Qt layout (<root>/plugins/...) first, then distro splits:
+        # Arch/CachyOS ships them under <root>/lib/qt6/plugins/...
+        foreach(_plugbase IN ITEMS "${_qt_root}/plugins" "${_qt_root}/lib/qt6/plugins" "${_qt_root}/lib/x86_64-linux-gnu/qt6/plugins")
+            if(EXISTS "${_plugbase}/${_plugindir}")
+                install(DIRECTORY "${_plugbase}/${_plugindir}" DESTINATION plugins)
+                break()
+            endif()
+        endforeach()
     endforeach()
     # Bundle the runtime closure into <prefix>/lib at install time (see script
     # for the system set that deliberately stays out: C runtime, libstdc++,
