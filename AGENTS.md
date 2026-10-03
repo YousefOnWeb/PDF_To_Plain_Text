@@ -71,6 +71,11 @@ disables Qt6, so macOS also builds Poppler from source. See `README.md`.
   `REALPATH` first or you stage dangling links that fail recursive `ldd`.
 - `ldd` tokens containing `/` (e.g. `lib64/ld-linux-*.so.2`) are loader
   paths, never SONAMEs — skip them, don't bundle or symlink them.
+- Every staged `.so` needs its own `$ORIGIN` RUNPATH (stamped with
+  `patchelf --set-rpath`, a Linux packaging requirement): RUNPATH does
+  not propagate to transitive lookups, so a bundled lib whose dependency
+  is also bundled (`libpoppler-qt6` → `libpoppler`) still resolves
+  `not found` — the exe's `$ORIGIN/../lib` only covers direct deps.
 
 ## Testing without a display
 

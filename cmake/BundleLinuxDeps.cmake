@@ -23,6 +23,14 @@ cmake_minimum_required(VERSION 3.21)
 if(NOT EXE OR NOT LIBDIR)
     message(FATAL_ERROR "BundleLinuxDeps.cmake requires EXE and LIBDIR")
 endif()
+# Every staged library must resolve its own bundled siblings: RUNPATH (unlike
+# RPATH) does not propagate to transitive lookups, so a bundled lib whose
+# dependency is also bundled (libpoppler-qt6 -> libpoppler) still reports
+# "not found" unless it carries its own $ORIGIN. Stamped post-copy below.
+find_program(PATCHELF_EXECUTABLE patchelf)
+if(NOT PATCHELF_EXECUTABLE)
+    message(FATAL_ERROR "BundleLinuxDeps: patchelf is required (sudo apt install patchelf)")
+endif()
 # Search dirs arrive via file, not -D: a semicolon list cannot survive
 # install(CODE "...") intact (bare quotes terminate the outer string, and
 # embedded quotes do not group, so the value splits and corrupts).
@@ -118,6 +126,16 @@ while(_queue)
         file(COPY "${_resolved}" DESTINATION "${LIBDIR}")
         if(NOT _real STREQUAL _name)
             execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_real}" "${LIBDIR}/${_name}")
+        endif()
+        # Operates on the staged copy, never the source file. "$ORIGIN" here
+        # is literal text: CMake only expands ${...} references, so the
+        # dollar sign survives into the ELF untouched.
+        execute_process(
+            COMMAND "${PATCHELF_EXECUTABLE}" --set-rpath "$ORIGIN" "${LIBDIR}/${_real}"
+            RESULT_VARIABLE _patchelf_rc
+        )
+        if(NOT _patchelf_rc EQUAL 0)
+            message(FATAL_ERROR "BundleLinuxDeps: patchelf failed on ${LIBDIR}/${_real}")
         endif()
         message(STATUS "BundleLinuxDeps: ${_name} -> ${LIBDIR}")
         list(APPEND _queue "${LIBDIR}/${_real}")
