@@ -186,8 +186,13 @@ if(UNIX AND NOT APPLE)
     # qt.conf next to the exe redirects Qt into the install tree ([Paths]
     # Prefix=.. makes Libraries=lib and Plugins=plugins resolve under root).
     # A file beside the executable overrides Qt's compiled-in paths.
-    file(WRITE "${CMAKE_BINARY_DIR}/qt.conf" "[Paths]\nPrefix=..\nLibraries=lib\nPlugins=plugins\n")
-    install(FILES "${CMAKE_BINARY_DIR}/qt.conf" DESTINATION bin)
+    # NOTE: written as qt.conf.install, NOT qt.conf: a file named qt.conf
+    # directly in CMAKE_BINARY_DIR would sit beside the build-tree exe
+    # (single-config generators place it at <build>/PDFToPlainText) and
+    # hijack its plugin lookup (Prefix=.. -> repo root, no plugins/),
+    # aborting local runs with "no Qt platform plugin could be initialized".
+    file(WRITE "${CMAKE_BINARY_DIR}/qt.conf.install" "[Paths]\nPrefix=..\nLibraries=lib\nPlugins=plugins\n")
+    install(FILES "${CMAKE_BINARY_DIR}/qt.conf.install" DESTINATION bin RENAME qt.conf)
     # Ship the Qt plugins the GUI needs (platforms/ carries xcb, offscreen
     # and minimal; xcbglintegrations covers GL-on-X11). The Qt root is found
     # by PROBING, not by assuming Qt6_DIR's depth: depending on how Qt was
