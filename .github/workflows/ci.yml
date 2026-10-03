@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config gettext gperf \
+          sudo apt-get install -y ninja-build pkg-config gettext gperf patchelf \
             libfreetype-dev libfontconfig-dev libjpeg-dev libpng-dev \
             libtiff-dev liblcms2-dev libnss3-dev libopenjp2-7-dev \
             zlib1g-dev libcurl4-openssl-dev liblzma-dev libgl1
