@@ -91,6 +91,11 @@ while(_queue)
         # (Bracket classes like [.] are used instead of backslash escapes:
         # backslash handling differs between layers here and has caused real
         # bugs before. See the header note on cmake_minimum_required.)
+        # Names containing a slash (e.g. lib64/ld-linux-x86-64.so.2 as the
+        # left-hand token on some distros) are loader paths, never SONAMEs.
+        if(_name MATCHES "/")
+            continue()
+        endif()
         if(_name MATCHES "^(ld-linux|libc[.]so|libm[.]so|libdl[.]so|libpthread[.]so|librt[.]so|libresolv[.]so|libcrypt[.]so|libutil[.]so|libnss_(files|dns|compat|hesiod)|libX|libxcb|libxkb|libGL|libEGL|libGLES|libOpenGL|libdbus|libstdc[+][+]so|libgcc_s[.]so)")
             continue()
         endif()
@@ -104,8 +109,13 @@ while(_queue)
         # Copy the real file; re-create the SONAME link when ldd reported one
         # (e.g. libfoo.so.1 => .../libfoo.so.1.2.3) so the loader finds the
         # exact name it looks up.
-        get_filename_component(_real "${_path}" NAME)
-        file(COPY "${_path}" DESTINATION "${LIBDIR}")
+        # NOTE: _path itself may be a symlink (Arch: /usr/lib/libQt6*.so.6 ->
+        # libQt6*.so.6.x.y). file(COPY) preserves symlinks, so copying _path
+        # directly would stage a dangling link and the later recursive ldd on
+        # it fails with "No such file or directory". Resolve first, then link.
+        get_filename_component(_resolved "${_path}" REALPATH)
+        get_filename_component(_real "${_resolved}" NAME)
+        file(COPY "${_resolved}" DESTINATION "${LIBDIR}")
         if(NOT _real STREQUAL _name)
             execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_real}" "${LIBDIR}/${_name}")
         endif()
